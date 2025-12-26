@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
 import { motion } from 'framer-motion';
+import { shouldUseMockAuth, authenticateMockUser, createMockSession, setMockSession, initDefaultAdmin } from '@/lib/mock-auth';
+import { isValidEmail, checkRateLimit } from '@/lib/utils/validation';
 
 export default function Login() {
     const [email, setEmail] = useState('');
@@ -10,22 +12,75 @@ export default function Login() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const navigate = useNavigate();
+    const useMock = shouldUseMockAuth();
+
+    // Initialize default admin when component mounts (if using mock)
+    useEffect(() => {
+        if (useMock) {
+            initDefaultAdmin();
+        }
+    }, [useMock]);
 
     const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
         setLoading(true);
         setError(null);
 
-        try {
-            const { error } = await supabase.auth.signInWithPassword({
-                email,
-                password,
-            });
+        // Security: Validate email format
+        if (!isValidEmail(email)) {
+            setError('Por favor, insira um email válido');
+            setLoading(false);
+            return;
+        }
 
-            if (error) throw error;
-            navigate('/');
+        // Security: Rate limiting (max 5 attempts per 15 minutes)
+        if (!checkRateLimit(`login_${email}`, 5, 15 * 60 * 1000)) {
+            setError('Muitas tentativas. Aguarde 15 minutos antes de tentar novamente.');
+            setLoading(false);
+            return;
+        }
+
+        try {
+            if (useMock) {
+                // Ensure admin is initialized
+                initDefaultAdmin();
+                
+                // Use mock authentication
+                const mockUser = authenticateMockUser(email, password);
+                if (!mockUser) {
+                    throw new Error('Email ou senha incorretos. Use: admin@test.com / admin123');
+                }
+
+                const mockSession = createMockSession(mockUser);
+                setMockSession(mockSession);
+                
+                console.log('✅ Login successful:', {
+                    email: mockUser.email,
+                    role: mockUser.role,
+                    userId: mockUser.id
+                });
+                
+                // Small delay to ensure localStorage is updated
+                await new Promise(resolve => setTimeout(resolve, 100));
+                
+                // Navigate based on role
+                if (mockUser.role === 'super_admin') {
+                    window.location.href = '/admin';
+                } else {
+                    window.location.href = '/dashboard';
+                }
+            } else {
+                // Use real Supabase auth
+                const { error } = await supabase.auth.signInWithPassword({
+                    email,
+                    password,
+                });
+
+                if (error) throw error;
+                navigate('/');
+            }
         } catch (err: any) {
-            setError('Erro ao entrar. Verifique suas credenciais.');
+            setError(err.message || 'Erro ao entrar. Verifique suas credenciais.');
         } finally {
             setLoading(false);
         }
@@ -41,6 +96,15 @@ export default function Login() {
                 <h2 className="text-3xl font-bold text-center mb-6 bg-gradient-to-r from-primary to-purple-400 bg-clip-text text-transparent">
                     Bem-vindo de Volta
                 </h2>
+
+                {useMock && (
+                    <div className="bg-blue-500/10 border border-blue-500/20 text-blue-600 dark:text-blue-400 text-xs p-3 rounded-md mb-4">
+                        <strong>Modo Desenvolvimento:</strong> Usando autenticação mock. Para testar, use:
+                        <br />• Email: <code className="bg-blue-500/20 px-1 rounded">admin@test.com</code>
+                        <br />• Senha: <code className="bg-blue-500/20 px-1 rounded">admin123</code>
+                        <br />Ou crie uma nova conta no cadastro.
+                    </div>
+                )}
 
                 {error && (
                     <div className="bg-destructive/10 text-destructive text-sm p-3 rounded-md mb-4">

@@ -1,10 +1,45 @@
 <!doctype html>
-<html lang="en">
+<html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>temp-app</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes" />
+    
+    <!-- Security Headers -->
+    <meta http-equiv="X-Content-Type-Options" content="nosniff" />
+    <!-- X-Frame-Options deve ser configurado via HTTP headers do servidor, não via meta tag -->
+    <meta http-equiv="X-XSS-Protection" content="1; mode=block" />
+    <meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin" />
+    
+    <!-- PWA Meta Tags -->
+    <meta name="description" content="Encontre acompanhantes e massagistas verificados em todo o Brasil. Perfis detalhados, fotos reais e contato direto." />
+    <meta name="keywords" content="acompanhantes, massagistas, acompanhantes de luxo, massagem, relaxamento, Brasil" />
+    <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#cd0e2d" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    
+    <!-- iOS Meta Tags -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Acompanhantes" />
+    <link rel="apple-touch-icon" href="/icons/icon-180x180.png" />
+    <link rel="apple-touch-icon" sizes="152x152" href="/icons/icon-152x152.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/icon-180x180.png" />
+    <link rel="apple-touch-icon" sizes="167x167" href="/icons/icon-192x192.png" />
+    
+    <!-- Android/Chrome Meta Tags -->
+    <meta name="application-name" content="Acompanhantes" />
+    <meta name="msapplication-TileColor" content="#cd0e2d" />
+    <meta name="msapplication-tap-highlight" content="no" />
+    
+    <!-- Manifest -->
+    <link rel="manifest" href="/manifest.json" />
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/icon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/icons/icon-16x16.png" />
+    <link rel="shortcut icon" href="/icons/favicon.ico" />
+    
+    <title>ACOMPANHANTES AGORA - Acompanhantes e Massagistas</title>
   </head>
   <body>
     <div id="root"></div>

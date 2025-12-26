@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Desregistrar Service Worker</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #fff;
+        }
+        .container {
+            background: #2a2a2a;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        }
+        h1 {
+            color: #cd0e2d;
+            margin-top: 0;
+        }
+        button {
+            background: #cd0e2d;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            margin: 10px 5px;
+        }
+        button:hover {
+            background: #a00b24;
+        }
+        button:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+        #status {
+            margin-top: 20px;
+            padding: 15px;
+            background: #333;
+            border-radius: 8px;
+            border-left: 4px solid #cd0e2d;
+        }
+        .success {
+            border-left-color: #0f0;
+        }
+        .error {
+            border-left-color: #f00;
+        }
+        code {
+            background: #444;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🛠️ Limpar Service Workers</h1>
+        <p>Use esta página para desregistrar todos os Service Workers e limpar o cache.</p>
+        
+        <button onclick="unregisterAll()">Desregistrar Todos os Service Workers</button>
+        <button onclick="clearCache()">Limpar Todo o Cache</button>
+        <button onclick="doAll()">Fazer Tudo + Recarregar</button>
+        
+        <div id="status"></div>
+        
+        <hr style="margin: 30px 0; border-color: #444;">
+        
+        <h2>Como usar:</h2>
+        <ol>
+            <li>Clique em <strong>"Fazer Tudo + Recarregar"</strong></li>
+            <li>Aguarde a página recarregar automaticamente</li>
+            <li>Volte para <code>http://localhost:5173</code></li>
+        </ol>
+        
+        <p style="color: #888; font-size: 14px; margin-top: 30px;">
+            💡 <strong>Dica:</strong> Se os erros persistirem, feche todas as abas do localhost:5173 
+            e abra uma nova aba.
+        </p>
+    </div>
+
+    <script>
+        const status = document.getElementById('status');
+        
+        function log(message, type = 'info') {
+            const div = document.createElement('div');
+            div.textContent = message;
+            div.style.marginBottom = '8px';
+            if (type === 'success') div.style.color = '#0f0';
+            if (type === 'error') div.style.color = '#f66';
+            status.appendChild(div);
+            console.log(message);
+        }
+        
+        async function unregisterAll() {
+            status.innerHTML = '';
+            log('Desregistrando Service Workers...');
+            
+            if ('serviceWorker' in navigator) {
+                try {
+                    const registrations = await navigator.serviceWorker.getRegistrations();
+                    
+                    if (registrations.length === 0) {
+                        log('✅ Nenhum Service Worker encontrado', 'success');
+                        return;
+                    }
+                    
+                    for (let registration of registrations) {
+                        await registration.unregister();
+                        log(`✅ Desregistrado: ${registration.scope}`, 'success');
+                    }
+                    
+                    log('✅ Todos os Service Workers foram desregistrados!', 'success');
+                } catch (error) {
+                    log(`❌ Erro: ${error.message}`, 'error');
+                }
+            } else {
+                log('❌ Service Workers não são suportados', 'error');
+            }
+        }
+        
+        async function clearCache() {
+            status.innerHTML = '';
+            log('Limpando cache...');
+            
+            if ('caches' in window) {
+                try {
+                    const cacheNames = await caches.keys();
+                    
+                    if (cacheNames.length === 0) {
+                        log('✅ Nenhum cache encontrado', 'success');
+                        return;
+                    }
+                    
+                    for (let cacheName of cacheNames) {
+                        await caches.delete(cacheName);
+                        log(`✅ Cache removido: ${cacheName}`, 'success');
+                    }
+                    
+                    log('✅ Todo o cache foi limpo!', 'success');
+                } catch (error) {
+                    log(`❌ Erro: ${error.message}`, 'error');
+                }
+            } else {
+                log('❌ Cache API não é suportada', 'error');
+            }
+        }
+        
+        async function doAll() {
+            status.innerHTML = '';
+            log('🔄 Executando limpeza completa...');
+            
+            await unregisterAll();
+            await clearCache();
+            
+            log('🎉 Limpeza concluída!', 'success');
+            log('Recarregando página em 2 segundos...');
+            
+            setTimeout(() => {
+                window.location.reload(true);
+            }, 2000);
+        }
+    </script>
+</body>
+</html>
+

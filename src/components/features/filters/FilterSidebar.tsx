@@ -1,11 +1,17 @@
-import { useState, useEffect } from 'react';
-import { ChevronDown, ChevronUp, Filter, Sparkles, User, Wallet, Check } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { ChevronDown, ChevronUp, Filter, Sparkles, User, Wallet, Check, CheckCircle, Users, Home } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { ALL_SERVICES } from '@/lib/constants/services';
+import { BRAZILIAN_CITIES } from '@/lib/constants/brazilian-cities';
+import { NEIGHBORHOODS_BY_CITY } from '@/lib/constants/neighborhoods';
+import { SERVICE_TO } from '@/lib/constants/massage-options';
+import { SERVICE_LOCATIONS } from '@/lib/constants/profile-options';
 
 interface FilterSidebarProps {
     className?: string;
     onFilterChange: (filters: FilterState) => void;
     activeFilters: FilterState;
+    onClose?: () => void;
 }
 
 export interface FilterState {
@@ -13,6 +19,7 @@ export interface FilterState {
     state: string;
     neighborhood: string; // Added
     gender: string[]; // Added
+    priceMin: number | '';
     priceMax: number | '';
     ageRange: [number, number];
     hairColor: string[];
@@ -20,6 +27,8 @@ export interface FilterState {
     ethnicity: string[];
     services: string[];
     paymentMethods: string[];
+    serviceTo: string[]; // Added - Serviços para
+    serviceLocations: string[]; // Added - Local de atendimento
     hasPlace: boolean | null;
     videoCall: boolean | null;
     verifiedOnly: boolean;
@@ -33,6 +42,7 @@ const INITIAL_FILTERS: FilterState = {
     state: '',
     neighborhood: '',
     gender: [],
+    priceMin: '',
     priceMax: '',
     ageRange: [18, 60],
     hairColor: [],
@@ -40,6 +50,8 @@ const INITIAL_FILTERS: FilterState = {
     ethnicity: [], // Added
     services: [],
     paymentMethods: [],
+    serviceTo: [], // Added
+    serviceLocations: [], // Added
     hasPlace: null,
     videoCall: null,
     verifiedOnly: false,
@@ -47,31 +59,34 @@ const INITIAL_FILTERS: FilterState = {
     keyword: '',
 };
 
-// Data Options
-const LOCATIONS = {
-    'SP': ['São Paulo', 'Campinas', 'Santos'],
-    'RJ': ['Rio de Janeiro', 'Niterói', 'Búzios'],
-    'MG': ['Belo Horizonte', 'Uberlândia'],
-    'PR': ['Curitiba', 'Londrina'],
-    'RS': ['Porto Alegre', 'Caxias do Sul'],
-    'BA': ['Salvador'],
-    'DF': ['Brasília']
+// Generate locations from BRAZILIAN_CITIES for complete coverage
+const getLocationsByState = () => {
+    const locations: Record<string, string[]> = {};
+    Object.entries(BRAZILIAN_CITIES).forEach(([city, data]) => {
+        const state = data.state;
+        if (!locations[state]) {
+            locations[state] = [];
+        }
+        locations[state].push(city);
+    });
+    // Sort cities within each state
+    Object.keys(locations).forEach(state => {
+        locations[state].sort();
+    });
+    return locations;
 };
+
+const LOCATIONS = getLocationsByState();
 
 const HAIR_COLORS = ['Loira', 'Morena', 'Ruiva', 'Preto', 'Colorido'];
 const BODY_TYPES = ['Magro', 'Mignon', 'Fitness', 'Curvilínea', 'Plus Size'];
 const ETHNICITIES = ['Branca', 'Negra', 'Mulata', 'Oriental', 'Latina'];
 const PAYMENTS = ['Dinheiro', 'PIX', 'Cartão de Crédito', 'Cartão de Débito', 'Crypto'];
-const SERVICES = [
-    'Massagem', 'Namoradinha', 'Jantar', 'Viagens', 'Fetiches',
-    'Beijo na boca', 'Oral até o final', 'Oral com camisinha',
-    'Dominatrix', 'Casais', 'Iniciantes'
-];
+const SERVICES = [...ALL_SERVICES];
 
-export function FilterSidebar({ className, onFilterChange, activeFilters }: FilterSidebarProps) {
+export function FilterSidebar({ className, onFilterChange, activeFilters, onClose }: FilterSidebarProps) {
     const [localFilters, setLocalFilters] = useState<FilterState>(activeFilters);
     const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
-        location: true,
         price: true,
         appearance: false,
         services: false,
@@ -90,7 +105,14 @@ export function FilterSidebar({ className, onFilterChange, activeFilters }: Filt
     const handleFilterUpdate = (newFilters: Partial<FilterState>) => {
         const updated = { ...localFilters, ...newFilters };
         setLocalFilters(updated);
-        onFilterChange(updated);
+        // Don't apply immediately - wait for "Aplicar" button
+    };
+
+    const handleApply = () => {
+        onFilterChange(localFilters);
+        if (onClose) {
+            onClose();
+        }
     };
 
     const toggleArrayItem = (field: keyof FilterState, value: string) => {
@@ -109,7 +131,13 @@ export function FilterSidebar({ className, onFilterChange, activeFilters }: Filt
                     Filtros Avançados
                 </h3>
                 <button
-                    onClick={() => handleFilterUpdate(INITIAL_FILTERS)}
+                    onClick={() => {
+                        setLocalFilters(INITIAL_FILTERS);
+                        onFilterChange(INITIAL_FILTERS);
+                        if (onClose) {
+                            onClose();
+                        }
+                    }}
                     className="text-xs text-muted-foreground hover:text-primary transition-colors"
                 >
                     Limpar tudo
@@ -117,33 +145,8 @@ export function FilterSidebar({ className, onFilterChange, activeFilters }: Filt
             </div>
 
             <div className="divide-y divide-border">
-                {/* 1. Location & Basic Qualities */}
+                {/* 1. Quick Toggles */}
                 <div className="p-4 space-y-4">
-                    <div className="flex flex-col gap-2">
-                        <label className="text-xs font-semibold uppercase text-muted-foreground">Localização</label>
-                        <select
-                            value={localFilters.state}
-                            onChange={(e) => handleFilterUpdate({ state: e.target.value, city: '' })}
-                            className="bg-background border border-input rounded-md p-2 text-sm"
-                        >
-                            <option value="">Todos os Estados</option>
-                            {Object.keys(LOCATIONS).map(uf => <option key={uf} value={uf}>{uf}</option>)}
-                        </select>
-
-                        {localFilters.state && (
-                            <select
-                                value={localFilters.city}
-                                onChange={(e) => handleFilterUpdate({ city: e.target.value })}
-                                className="bg-background border border-input rounded-md p-2 text-sm animate-in fade-in slide-in-from-top-2"
-                            >
-                                <option value="">Todas as Cidades</option>
-                                {/* @ts-ignore */}
-                                {LOCATIONS[localFilters.state]?.map(city => <option key={city} value={city}>{city}</option>)}
-                            </select>
-                        )}
-                    </div>
-
-                    {/* Quick Toggles */}
                     <div className="flex flex-wrap gap-2">
                         <button
                             onClick={() => handleFilterUpdate({ verifiedOnly: !localFilters.verifiedOnly })}
@@ -181,27 +184,6 @@ export function FilterSidebar({ className, onFilterChange, activeFilters }: Filt
                     </div>
                 </div>
 
-                {/* 1.5 Gender */}
-                <div className="p-4 border-b border-border">
-                    <label className="text-xs font-semibold uppercase text-muted-foreground mb-3 block">Gênero</label>
-                    <div className="flex flex-wrap gap-2">
-                        {['Mulher', 'Homem', 'Trans'].map(g => (
-                            <button
-                                key={g}
-                                onClick={() => toggleArrayItem('gender', g.toLowerCase())}
-                                className={cn(
-                                    "px-4 py-2 rounded-full text-sm font-medium transition-colors border",
-                                    localFilters.gender?.includes(g.toLowerCase())
-                                        ? "bg-primary text-primary-foreground border-primary"
-                                        : "bg-card text-foreground border-border hover:bg-muted"
-                                )}
-                            >
-                                {g}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-
                 {/* 2. Price Range */}
                 <div className="p-4">
                     <button
@@ -216,20 +198,57 @@ export function FilterSidebar({ className, onFilterChange, activeFilters }: Filt
                         <div className="space-y-4 pt-2 animate-in fade-in slide-in-from-top-2">
                             <div>
                                 <label className="text-xs text-muted-foreground block mb-2">
-                                    Preço Máximo: <span className="text-foreground font-bold">{localFilters.priceMax ? `R$ ${localFilters.priceMax}` : 'Qualquer'}</span>
+                                    Valor: <span className="text-foreground font-bold">
+                                        {localFilters.priceMin ? `R$ ${localFilters.priceMin}` : 'Qualquer'} - {localFilters.priceMax ? `R$ ${localFilters.priceMax}` : 'Qualquer'}
+                                    </span>
                                 </label>
-                                <input
-                                    type="range"
-                                    min="100"
-                                    max="1000"
-                                    step="50"
-                                    value={localFilters.priceMax || 1000}
-                                    onChange={(e) => handleFilterUpdate({ priceMax: Number(e.target.value) })}
-                                    className="w-full accent-primary h-2 bg-muted rounded-lg appearance-none cursor-pointer"
-                                />
-                                <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
-                                    <span>R$ 100</span>
-                                    <span>R$ 1000+</span>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label className="text-[10px] text-muted-foreground block mb-1">Mínimo (R$)</label>
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            step="50"
+                                            placeholder="Qualquer"
+                                            value={localFilters.priceMin === '' ? '' : localFilters.priceMin}
+                                            onChange={(e) => {
+                                                const value = e.target.value;
+                                                const numValue = value === '' ? '' : Number(value);
+                                                if (numValue === '' || (typeof numValue === 'number' && numValue >= 0)) {
+                                                    handleFilterUpdate({ 
+                                                        priceMin: numValue,
+                                                        priceMax: (typeof numValue === 'number' && localFilters.priceMax !== '' && numValue > localFilters.priceMax) 
+                                                            ? '' 
+                                                            : localFilters.priceMax
+                                                    });
+                                                }
+                                            }}
+                                            className="w-full px-2 py-1.5 text-sm border border-input rounded-md bg-background focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] text-muted-foreground block mb-1">Máximo (R$)</label>
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            step="50"
+                                            placeholder="Qualquer"
+                                            value={localFilters.priceMax === '' ? '' : localFilters.priceMax}
+                                            onChange={(e) => {
+                                                const value = e.target.value;
+                                                const numValue = value === '' ? '' : Number(value);
+                                                if (numValue === '' || (typeof numValue === 'number' && numValue >= 0)) {
+                                                    handleFilterUpdate({ 
+                                                        priceMax: numValue,
+                                                        priceMin: (typeof numValue === 'number' && localFilters.priceMin !== '' && numValue < localFilters.priceMin) 
+                                                            ? '' 
+                                                            : localFilters.priceMin
+                                                    });
+                                                }
+                                            }}
+                                            className="w-full px-2 py-1.5 text-sm border border-input rounded-md bg-background focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+                                        />
+                                    </div>
                                 </div>
                             </div>
 
@@ -254,6 +273,50 @@ export function FilterSidebar({ className, onFilterChange, activeFilters }: Filt
                             </div>
                         </div>
                     )}
+                </div>
+
+                {/* 2.5. Age Range */}
+                <div className="p-4">
+                    <div className="space-y-3">
+                        <label className="text-xs font-semibold uppercase text-muted-foreground flex items-center gap-2">
+                            <User className="w-3.5 h-3.5" /> Idade
+                        </label>
+                        <div>
+                            <label className="text-xs text-muted-foreground block mb-2">
+                                Idade: <span className="text-foreground font-bold">{localFilters.ageRange[0]} - {localFilters.ageRange[1]} anos</span>
+                            </label>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="text-[10px] text-muted-foreground block mb-1">De</label>
+                                    <input
+                                        type="number"
+                                        min="18"
+                                        max="80"
+                                        value={localFilters.ageRange[0]}
+                                        onChange={(e) => {
+                                            const newMin = Math.max(18, Math.min(Number(e.target.value), localFilters.ageRange[1] - 1));
+                                            handleFilterUpdate({ ageRange: [newMin, localFilters.ageRange[1]] });
+                                        }}
+                                        className="w-full px-2 py-1.5 text-sm border border-input rounded-md bg-background focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] text-muted-foreground block mb-1">Até</label>
+                                    <input
+                                        type="number"
+                                        min={localFilters.ageRange[0] + 1}
+                                        max="80"
+                                        value={localFilters.ageRange[1]}
+                                        onChange={(e) => {
+                                            const newMax = Math.min(80, Math.max(Number(e.target.value), localFilters.ageRange[0] + 1));
+                                            handleFilterUpdate({ ageRange: [localFilters.ageRange[0], newMax] });
+                                        }}
+                                        className="w-full px-2 py-1.5 text-sm border border-input rounded-md bg-background focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 {/* 3. Appearance */}
@@ -365,6 +428,67 @@ export function FilterSidebar({ className, onFilterChange, activeFilters }: Filt
                         </div>
                     )}
                 </div>
+
+                {/* 5. Serviços para */}
+                <div className="p-4">
+                    <div className="space-y-2">
+                        <label className="text-xs font-semibold uppercase text-muted-foreground flex items-center gap-2">
+                            <Users className="w-3.5 h-3.5" /> Serviços para
+                        </label>
+                        <div className="flex flex-wrap gap-1.5">
+                            {SERVICE_TO.map(option => (
+                                <button
+                                    key={option}
+                                    onClick={() => toggleArrayItem('serviceTo', option)}
+                                    className={cn(
+                                        "text-[10px] px-2.5 py-1 rounded-full border transition-all",
+                                        localFilters.serviceTo.includes(option)
+                                            ? "bg-primary/10 border-primary text-primary font-medium"
+                                            : "bg-background border-input text-muted-foreground hover:bg-muted"
+                                    )}
+                                >
+                                    {option}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+
+                {/* 6. Local de Atendimento */}
+                <div className="p-4">
+                    <div className="space-y-2">
+                        <label className="text-xs font-semibold uppercase text-muted-foreground flex items-center gap-2">
+                            <Home className="w-3.5 h-3.5" /> Local de Atendimento
+                        </label>
+                        <div className="flex flex-wrap gap-1.5">
+                            {SERVICE_LOCATIONS.map(location => (
+                                <button
+                                    key={location}
+                                    onClick={() => toggleArrayItem('serviceLocations', location)}
+                                    className={cn(
+                                        "text-[10px] px-2.5 py-1 rounded-full border transition-all",
+                                        localFilters.serviceLocations.includes(location)
+                                            ? "bg-primary/10 border-primary text-primary font-medium"
+                                            : "bg-background border-input text-muted-foreground hover:bg-muted"
+                                    )}
+                                >
+                                    {location}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* Apply Button */}
+            <div className="p-4 border-t border-border bg-muted/30">
+                <button
+                    onClick={handleApply}
+                    className="w-full bg-primary text-primary-foreground hover:bg-primary/90 font-semibold py-2.5 px-4 rounded-md transition-colors flex items-center justify-center gap-2"
+                >
+                    <CheckCircle className="w-4 h-4" />
+                    Aplicar Filtros
+                </button>
             </div>
         </aside>
     );

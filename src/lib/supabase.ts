@@ -18,8 +18,9 @@ const isValidUrl = (url: string | undefined): boolean => {
 const finalUrl = isValidUrl(supabaseUrl) ? supabaseUrl! : 'https://placeholder.supabase.co';
 const finalKey = (supabaseAnonKey && !supabaseAnonKey.includes('YOUR_SUPABASE')) ? supabaseAnonKey : 'placeholder-key';
 
-if (finalUrl === 'https://placeholder.supabase.co') {
-    console.warn('⚠️ using placeholder Supabase URL. Data features will not work.');
+if (finalUrl === 'https://placeholder.supabase.co' && import.meta.env.DEV) {
+    // Only show info in development mode
+    console.info('ℹ️ Using placeholder Supabase URL. Mock data will be used.');
 }
 
 export const supabase = createClient<Database>(finalUrl, finalKey);

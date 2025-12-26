@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Admin User Creation</title>
+</head>
+<body>
+    <h1>Test Admin User Creation</h1>
+    <button onclick="createAdmin()">Criar Usuário Admin</button>
+    <button onclick="checkAdmin()">Verificar Admin</button>
+    <button onclick="clearAll()">Limpar Tudo</button>
+    <div id="result"></div>
+
+    <script>
+        function createAdmin() {
+            const admin = {
+                id: 'mock_admin_001',
+                email: 'admin@test.com',
+                display_name: 'Admin Teste',
+                role: 'super_admin',
+                created_at: new Date().toISOString(),
+            };
+
+            let users = JSON.parse(localStorage.getItem('mock_users') || '[]');
+            
+            // Remove existing admin if any
+            users = users.filter(u => u.email !== 'admin@test.com');
+            
+            users.push(admin);
+            localStorage.setItem('mock_users', JSON.stringify(users));
+            
+            // Set password
+            localStorage.setItem('mock_password_mock_admin_001', 'admin123');
+            
+            document.getElementById('result').innerHTML = '<p style="color: green;">✅ Admin criado com sucesso!</p><pre>' + JSON.stringify(admin, null, 2) + '</pre>';
+        }
+
+        function checkAdmin() {
+            const users = JSON.parse(localStorage.getItem('mock_users') || '[]');
+            const admin = users.find(u => u.email === 'admin@test.com');
+            const password = localStorage.getItem('mock_password_mock_admin_001');
+            
+            if (admin) {
+                document.getElementById('result').innerHTML = 
+                    '<p style="color: green;">✅ Admin encontrado!</p>' +
+                    '<pre>User: ' + JSON.stringify(admin, null, 2) + '</pre>' +
+                    '<pre>Password: ' + (password || 'NÃO ENCONTRADA') + '</pre>';
+            } else {
+                document.getElementById('result').innerHTML = '<p style="color: red;">❌ Admin não encontrado!</p>';
+            }
+        }
+
+        function clearAll() {
+            localStorage.removeItem('mock_users');
+            localStorage.removeItem('mock_password_mock_admin_001');
+            localStorage.removeItem('mock_session');
+            document.getElementById('result').innerHTML = '<p style="color: orange;">🧹 Dados limpos!</p>';
+        }
+
+        // Auto-check on load
+        window.onload = checkAdmin;
+    </script>
+</body>
+</html>
+
+

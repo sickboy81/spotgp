@@ -1,0 +1,12 @@
+# robots.txt for ACOMPANHANTES AGORA
+
+User-agent: *
+Allow: /
+Disallow: /dashboard/
+Disallow: /admin/
+Disallow: /messages/
+
+# Sitemap
+Sitemap: https://acompanhantesagora.com/sitemap.xml
+
+
