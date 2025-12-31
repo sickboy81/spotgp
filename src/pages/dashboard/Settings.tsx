@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { User, Lock, Bell, Shield, Trash2, Save, Loader2 } from 'lucide-react';
+import { User, Bell, Shield, Trash2, Save, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 
 export default function Settings() {
-    const { user, signOut } = useAuth();
+    const { user } = useAuth();
     const [loading, setLoading] = useState(false);
     const [saveStatus, setSaveStatus] = useState<{ type: 'success' | 'error' | null; message: string }>({ type: null, message: '' });
 
@@ -18,7 +18,7 @@ export default function Settings() {
     const handleSaveSettings = async () => {
         setLoading(true);
         setSaveStatus({ type: null, message: '' });
-        
+
         // Simulated save - TODO: Replace with actual database call
         setTimeout(() => {
             setSaveStatus({ type: 'success', message: 'Configurações salvas com sucesso!' });
@@ -47,7 +47,7 @@ export default function Settings() {
                     <User className="w-5 h-5" />
                     <h2 className="text-xl font-bold text-foreground">Conta</h2>
                 </div>
-                
+
                 <div className="space-y-4">
                     <div>
                         <label className="block text-sm font-medium mb-1">Email</label>
@@ -55,6 +55,7 @@ export default function Settings() {
                             type="email"
                             value={user?.email || ''}
                             disabled
+                            aria-label="Email"
                             className="w-full bg-muted border border-input rounded-md px-3 py-2 text-sm text-muted-foreground cursor-not-allowed"
                         />
                         <p className="text-xs text-muted-foreground mt-1">O email não pode ser alterado</p>
@@ -87,6 +88,7 @@ export default function Settings() {
                             value={settings.profileVisibility}
                             onChange={(e) => setSettings(prev => ({ ...prev, profileVisibility: e.target.value }))}
                             className="bg-background border border-input rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-primary outline-none"
+                            aria-label="Profile Visibility"
                         >
                             <option value="public">Público</option>
                             <option value="private">Privado</option>
@@ -105,6 +107,7 @@ export default function Settings() {
                                 checked={settings.twoFactorAuth}
                                 onChange={(e) => setSettings(prev => ({ ...prev, twoFactorAuth: e.target.checked }))}
                                 className="sr-only peer"
+                                aria-label="Toggle Two Factor Authentication"
                             />
                             <div className="w-11 h-6 bg-muted peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-primary rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
                         </label>
@@ -131,6 +134,7 @@ export default function Settings() {
                                 checked={settings.emailNotifications}
                                 onChange={(e) => setSettings(prev => ({ ...prev, emailNotifications: e.target.checked }))}
                                 className="sr-only peer"
+                                aria-label="Toggle Email Notifications"
                             />
                             <div className="w-11 h-6 bg-muted peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-primary rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
                         </label>
@@ -147,6 +151,7 @@ export default function Settings() {
                                 checked={settings.smsNotifications}
                                 onChange={(e) => setSettings(prev => ({ ...prev, smsNotifications: e.target.checked }))}
                                 className="sr-only peer"
+                                aria-label="Toggle SMS Notifications"
                             />
                             <div className="w-11 h-6 bg-muted peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-primary rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
                         </label>

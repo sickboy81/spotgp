@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Bell, Check, X, Loader2, Trash2 } from 'lucide-react';
+import { Bell, Check, X, Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
@@ -18,30 +18,30 @@ export default function Notifications() {
     const [filter, setFilter] = useState<'all' | 'unread'>('all');
 
     useEffect(() => {
+        const loadNotifications = async () => {
+            if (!user?.id) return;
+
+            setLoading(true);
+            try {
+                const data = await getUserNotifications(user.id, {
+                    unreadOnly: filter === 'unread',
+                });
+                setNotifications(data);
+            } catch (error) {
+                console.error('Error loading notifications:', error);
+            } finally {
+                setLoading(false);
+            }
+        };
+
         if (user?.id) {
             loadNotifications();
-            
+
             // Poll for new notifications every 30 seconds
             const interval = setInterval(loadNotifications, 30000);
             return () => clearInterval(interval);
         }
     }, [user?.id, filter]);
-
-    const loadNotifications = async () => {
-        if (!user?.id) return;
-        
-        setLoading(true);
-        try {
-            const data = await getUserNotifications(user.id, {
-                unreadOnly: filter === 'unread',
-            });
-            setNotifications(data);
-        } catch (error) {
-            console.error('Error loading notifications:', error);
-        } finally {
-            setLoading(false);
-        }
-    };
 
     const handleMarkAsRead = async (notificationId: string) => {
         await markNotificationAsRead(notificationId);
@@ -96,7 +96,7 @@ export default function Notifications() {
                 <div>
                     <h1 className="text-3xl font-bold mb-2">Notificações</h1>
                     <p className="text-muted-foreground">
-                        {unreadCount > 0 
+                        {unreadCount > 0
                             ? `${unreadCount} notificação${unreadCount > 1 ? 'ões' : ''} não lida${unreadCount > 1 ? 's' : ''}`
                             : 'Todas as notificações foram lidas'}
                     </p>
@@ -106,6 +106,7 @@ export default function Notifications() {
                         value={filter}
                         onChange={(e) => setFilter(e.target.value as 'all' | 'unread')}
                         className="bg-background border border-input rounded-md px-4 py-2 text-sm focus:ring-1 focus:ring-primary outline-none"
+                        aria-label="Filter notifications"
                     >
                         <option value="all">Todas</option>
                         <option value="unread">Não lidas</option>
@@ -129,7 +130,7 @@ export default function Notifications() {
                         {filter === 'unread' ? 'Nenhuma notificação não lida' : 'Nenhuma notificação'}
                     </h3>
                     <p className="text-muted-foreground">
-                        {filter === 'unread' 
+                        {filter === 'unread'
                             ? 'Você leu todas as suas notificações!'
                             : 'Suas notificações aparecerão aqui'}
                     </p>

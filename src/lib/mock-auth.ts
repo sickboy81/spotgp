@@ -3,7 +3,21 @@
  * This file provides mock authentication when Supabase is not configured
  */
 
-import { User, Session } from '@supabase/supabase-js';
+// Removed supabase-js import
+// import { User, Session } from '@supabase/supabase-js';
+
+// Define minimal compatible types
+export interface User {
+    id: string;
+    email?: string;
+    [key: string]: any;
+}
+
+export interface Session {
+    user: User;
+    access_token: string;
+    [key: string]: any;
+}
 
 const MOCK_USERS_KEY = 'mock_users';
 const MOCK_SESSION_KEY = 'mock_session';
@@ -70,7 +84,7 @@ export function setMockSession(session: MockSession | null): void {
  */
 export function createMockUser(email: string, password: string, displayName: string, phone?: string): MockUser {
     const users = getMockUsers();
-    
+
     // Check if user already exists
     if (users.find(u => u.email === email)) {
         throw new Error('Usuário já existe com este email');
@@ -162,7 +176,7 @@ export function mockUserToSupabaseUser(mockUser: MockUser): User {
  */
 export function createMockSession(mockUser: MockUser): MockSession {
     const user = mockUserToSupabaseUser(mockUser);
-    
+
     const session: Session = {
         access_token: `mock_token_${mockUser.id}_${Date.now()}`,
         refresh_token: `mock_refresh_${mockUser.id}_${Date.now()}`,
@@ -179,8 +193,13 @@ export function createMockSession(mockUser: MockUser): MockSession {
  * Check if we should use mock auth (when Supabase URL is placeholder)
  */
 export function shouldUseMockAuth(): boolean {
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-    return !supabaseUrl || supabaseUrl.includes('placeholder') || supabaseUrl.includes('YOUR_SUPABASE');
+    // const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    // const pocketbaseUrl = import.meta.env.VITE_POCKETBASE_URL;
+    // If we have PB url, we probably don't need mock auth unless explicitly requested
+    // But keeping logic similar: if supabase URL is missing/placeholder, use mock?
+    // Actually, let's just default to false if we are migrating to PB.
+    return false; // Force disable mock auth for now as we are moving to PB 
+    // return !supabaseUrl || supabaseUrl.includes('placeholder') || supabaseUrl.includes('YOUR_SUPABASE');
 }
 
 /**
@@ -188,7 +207,7 @@ export function shouldUseMockAuth(): boolean {
  */
 export function initDefaultAdmin(): void {
     const users = getMockUsers();
-    
+
     // Check if admin already exists
     const existingAdmin = users.find(u => u.email === 'admin@test.com');
     if (existingAdmin) {
@@ -213,7 +232,7 @@ export function initDefaultAdmin(): void {
 
     users.push(admin);
     saveMockUsers(users);
-    
+
     console.log('✅ Admin mock user created:', admin.email);
 }
 

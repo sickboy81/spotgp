@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Search, Filter, Calendar, User, Ban, ShieldCheck, Flag, Trash2, Loader2 } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import { pb } from '@/lib/pocketbase';
 import { cn } from '@/lib/utils';
 
 interface ActivityLog {
@@ -9,7 +9,7 @@ interface ActivityLog {
     admin_id: string;
     target_id: string;
     description: string;
-    created_at: string;
+    created: string;
     admin_name?: string;
     target_name?: string;
 }
@@ -32,11 +32,10 @@ export default function ActivityLogs() {
             const activities: ActivityLog[] = [];
 
             // Get recent reports as activity
-            const { data: reports } = await supabase
-                .from('reports')
-                .select('*')
-                .order('created_at', { ascending: false })
-                .limit(50);
+            const reportsResult = await pb.collection('reports').getList(1, 50, {
+                sort: '-created',
+            });
+            const reports = reportsResult.items;
 
             if (reports) {
                 reports.forEach(report => {
@@ -46,13 +45,13 @@ export default function ActivityLogs() {
                         admin_id: report.reviewed_by || '',
                         target_id: report.profile_id,
                         description: `Report criado: ${report.type} - ${report.description.substring(0, 50)}...`,
-                        created_at: report.created_at,
+                        created: report.created,
                     });
                 });
             }
 
             // Sort by date
-            activities.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+            activities.sort((a, b) => new Date(b.created).getTime() - new Date(a.created).getTime());
 
             setLogs(activities);
         } catch (error) {
@@ -120,7 +119,7 @@ export default function ActivityLogs() {
 
     const filteredLogs = logs.filter(log => {
         const matchesSearch = log.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                             log.target_id.toLowerCase().includes(searchQuery.toLowerCase());
+            log.target_id.toLowerCase().includes(searchQuery.toLowerCase());
         const matchesType = filterType === 'all' || log.type === filterType;
         return matchesSearch && matchesType;
     });
@@ -148,8 +147,9 @@ export default function ActivityLogs() {
                     <Filter className="w-4 h-4 text-muted-foreground" />
                     <select
                         value={filterType}
-                        onChange={(e) => setFilterType(e.target.value as any)}
+                        onChange={(e) => setFilterType(e.target.value as ActivityLog['type'] | 'all')}
                         className="bg-background border border-input rounded-md px-4 py-2 text-sm focus:ring-1 focus:ring-primary outline-none"
+                        aria-label="Filtrar por tipo"
                     >
                         <option value="all">Todos os Tipos</option>
                         <option value="ban">Banimentos</option>
@@ -194,7 +194,7 @@ export default function ActivityLogs() {
                                                 {getActivityLabel(log.type)}
                                             </span>
                                             <span className="text-xs text-muted-foreground">
-                                                {formatDate(log.created_at)}
+                                                {formatDate(log.created)}
                                             </span>
                                         </div>
                                         <p className="text-sm text-foreground mb-1">

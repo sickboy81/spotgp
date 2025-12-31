@@ -1,20 +1,26 @@
 // API functions for profile views tracking
-// Prepared for database integration - currently using localStorage simulation with Supabase integration ready
+import { pb } from '@/lib/pocketbase';
 
-import { supabase } from '../supabase';
-import { Database } from '../../types/supabase';
-
-type ProfileView = Database['public']['Tables']['profile_views']['Row'];
-type ProfileViewInsert = Database['public']['Tables']['profile_views']['Insert'];
+export interface ProfileView {
+    id: string;
+    profile_id: string;
+    viewer_id?: string | null;
+    viewer_session?: string | null;
+    device_type: 'desktop' | 'mobile' | 'tablet' | 'unknown';
+    city?: string | null;
+    country?: string | null;
+    is_unique: boolean;
+    created: string;
+}
 
 /**
  * Generate or retrieve a unique session ID
  */
 function getSessionId(): string {
-    let sessionId = sessionStorage.getItem('saphira_session_id');
+    let sessionId = sessionStorage.getItem('spotgp_session_id');
     if (!sessionId) {
         sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        sessionStorage.setItem('saphira_session_id', sessionId);
+        sessionStorage.setItem('spotgp_session_id', sessionId);
     }
     return sessionId;
 }
@@ -24,7 +30,7 @@ function getSessionId(): string {
  */
 function detectDeviceType(): 'desktop' | 'mobile' | 'tablet' | 'unknown' {
     if (typeof window === 'undefined') return 'unknown';
-    
+
     const ua = navigator.userAgent.toLowerCase();
     if (/tablet|ipad|playbook|silk/i.test(ua)) return 'tablet';
     if (/mobile|iphone|ipod|android|blackberry|opera|mini|windows\sce|palm|smartphone|iemobile/i.test(ua)) return 'mobile';
@@ -39,11 +45,11 @@ function detectDeviceType(): 'desktop' | 'mobile' | 'tablet' | 'unknown' {
 function isUniqueView(profileId: string): boolean {
     const key = `viewed_${profileId}`;
     const viewed = sessionStorage.getItem(key);
-    
+
     if (viewed) {
         return false; // Already viewed in this session
     }
-    
+
     // Mark as viewed for this session
     sessionStorage.setItem(key, 'true');
     return true;
@@ -58,8 +64,7 @@ export async function recordProfileView(profileId: string, viewerId?: string | n
         const deviceType = detectDeviceType();
         const unique = isUniqueView(profileId);
 
-        // Try Supabase first
-        const viewData: ProfileViewInsert = {
+        const viewData = {
             profile_id: profileId,
             viewer_id: viewerId || null,
             viewer_session: sessionId,
@@ -69,25 +74,19 @@ export async function recordProfileView(profileId: string, viewerId?: string | n
             is_unique: unique,
         };
 
-        const { error } = await supabase
-            .from('profile_views')
-            .insert(viewData);
-
-        if (error) throw error;
-
-        // Also save to localStorage as backup
+        await pb.collection('profile_views').create(viewData);
         saveViewToLocalStorage(viewData);
 
         return { success: true };
     } catch (err: any) {
-        console.warn('Error recording view in Supabase, using localStorage:', err);
-        
+        console.warn('Error recording view in PocketBase, using localStorage:', err);
+
         // Fallback to localStorage
         const sessionId = getSessionId();
         const deviceType = detectDeviceType();
         const unique = isUniqueView(profileId);
 
-        const viewData: ProfileViewInsert = {
+        const viewData = {
             profile_id: profileId,
             viewer_id: viewerId || null,
             viewer_session: sessionId,
@@ -119,30 +118,22 @@ export async function getProfileViews(
     byDate: Array<{ date: string; count: number }>;
 }> {
     try {
-        let query = supabase
-            .from('profile_views')
-            .select('*')
-            .eq('profile_id', profileId);
+        const filterParts = [`profile_id = "${profileId}"`];
 
         if (options?.startDate) {
-            query = query.gte('created_at', options.startDate.toISOString());
+            filterParts.push(`created >= "${options.startDate.toISOString()}"`);
         }
         if (options?.endDate) {
-            query = query.lte('created_at', options.endDate.toISOString());
+            filterParts.push(`created <= "${options.endDate.toISOString()}"`);
         }
 
-        const { data, error } = await query;
+        const views = await pb.collection('profile_views').getFullList<ProfileView>({
+            filter: filterParts.join(' && '),
+        });
 
-        if (error) throw error;
-
-        if (data && data.length > 0) {
-            return processViewData(data, options?.uniqueOnly);
-        }
-
-        // Fallback to localStorage
-        return getViewsFromLocalStorage(profileId, options);
+        return processViewData(views, options?.uniqueOnly);
     } catch (err: any) {
-        console.warn('Error fetching views from Supabase, using localStorage:', err);
+        console.warn('Error fetching views from PocketBase, using localStorage:', err);
         return getViewsFromLocalStorage(profileId, options);
     }
 }
@@ -160,10 +151,10 @@ function processViewData(
     byDate: Array<{ date: string; count: number }>;
 } {
     const filtered = uniqueOnly ? views.filter(v => v.is_unique) : views;
-    
+
     const total = filtered.length;
     const unique = views.filter(v => v.is_unique).length;
-    
+
     const byDevice: Record<string, number> = {};
     filtered.forEach(view => {
         byDevice[view.device_type] = (byDevice[view.device_type] || 0) + 1;
@@ -172,7 +163,7 @@ function processViewData(
     // Group by date
     const byDateMap: Record<string, number> = {};
     filtered.forEach(view => {
-        const date = new Date(view.created_at).toISOString().split('T')[0];
+        const date = new Date(view.created).toISOString().split('T')[0];
         byDateMap[date] = (byDateMap[date] || 0) + 1;
     });
 
@@ -183,21 +174,21 @@ function processViewData(
     return { total, unique, byDevice, byDate };
 }
 
-// LocalStorage fallback functions
-function saveViewToLocalStorage(view: ProfileViewInsert): void {
+// LocalStorage fallback functions (types adjusted for PB compatibility)
+function saveViewToLocalStorage(view: any): void {
     const views = getViewsFromLocalStorageArray();
     const newView: ProfileView = {
         ...view,
         id: view.id || `view_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-        created_at: view.created_at || new Date().toISOString(),
+        created: view.created || new Date().toISOString(),
     } as ProfileView;
-    
+
     views.push(newView);
-    localStorage.setItem('saphira_profile_views', JSON.stringify(views));
+    localStorage.setItem('spotgp_profile_views', JSON.stringify(views));
 }
 
 function getViewsFromLocalStorageArray(): ProfileView[] {
-    const stored = localStorage.getItem('saphira_profile_views');
+    const stored = localStorage.getItem('spotgp_profile_views');
     return stored ? JSON.parse(stored) : [];
 }
 
@@ -217,13 +208,11 @@ function getViewsFromLocalStorage(
     let views = getViewsFromLocalStorageArray().filter(v => v.profile_id === profileId);
 
     if (options?.startDate) {
-        views = views.filter(v => new Date(v.created_at) >= options.startDate!);
+        views = views.filter(v => new Date(v.created) >= options.startDate!);
     }
     if (options?.endDate) {
-        views = views.filter(v => new Date(v.created_at) <= options.endDate!);
+        views = views.filter(v => new Date(v.created) <= options.endDate!);
     }
 
     return processViewData(views, options?.uniqueOnly);
 }
-
-

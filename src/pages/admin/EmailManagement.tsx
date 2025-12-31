@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Mail, Send, Users, MessageSquare, Plus, Trash2, Edit, Loader2, Filter } from 'lucide-react';
+import { Mail, Send, MessageSquare, Plus, Trash2, Edit } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface EmailTemplate {
@@ -23,9 +23,9 @@ interface BulkEmail {
 
 export default function EmailManagement() {
     const [templates, setTemplates] = useState<EmailTemplate[]>([]);
-    const [bulkEmails, setBulkEmails] = useState<BulkEmail[]>([]);
+    const [bulkEmails] = useState<BulkEmail[]>([]);
     const [activeTab, setActiveTab] = useState<'templates' | 'send' | 'history'>('templates');
-    
+
     const [showTemplateForm, setShowTemplateForm] = useState(false);
     const [editingTemplate, setEditingTemplate] = useState<EmailTemplate | null>(null);
     const [templateForm, setTemplateForm] = useState({
@@ -169,8 +169,9 @@ export default function EmailManagement() {
                                     <label className="block text-sm font-medium mb-1">Tipo</label>
                                     <select
                                         value={templateForm.type}
-                                        onChange={(e) => setTemplateForm({ ...templateForm, type: e.target.value as any })}
+                                        onChange={(e) => setTemplateForm({ ...templateForm, type: e.target.value as EmailTemplate['type'] })}
                                         className="w-full px-4 py-2 bg-background border border-input rounded-lg focus:ring-2 focus:ring-primary outline-none"
+                                        aria-label="Tipo de template"
                                     >
                                         <option value="welcome">Boas-vindas</option>
                                         <option value="verification">Verificação</option>
@@ -241,12 +242,14 @@ export default function EmailManagement() {
                                         <button
                                             onClick={() => handleEditTemplate(template)}
                                             className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors"
+                                            aria-label="Editar template"
                                         >
                                             <Edit className="w-4 h-4" />
                                         </button>
                                         <button
                                             onClick={() => handleDeleteTemplate(template.id)}
                                             className="p-1.5 text-destructive hover:bg-destructive/10 rounded transition-colors"
+                                            aria-label="Deletar template"
                                         >
                                             <Trash2 className="w-4 h-4" />
                                         </button>
@@ -272,7 +275,10 @@ export default function EmailManagement() {
                     <div className="space-y-4">
                         <div>
                             <label className="block text-sm font-medium mb-1">Selecionar Template</label>
-                            <select className="w-full px-4 py-2 bg-background border border-input rounded-lg focus:ring-2 focus:ring-primary outline-none">
+                            <select
+                                className="w-full px-4 py-2 bg-background border border-input rounded-lg focus:ring-2 focus:ring-primary outline-none"
+                                aria-label="Selecionar template"
+                            >
                                 <option value="">Selecione um template...</option>
                                 {templates.map(t => (
                                     <option key={t.id} value={t.id}>{t.name}</option>

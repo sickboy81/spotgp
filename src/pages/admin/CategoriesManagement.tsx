@@ -1,18 +1,17 @@
 import { useState } from 'react';
-import { Tag, Plus, Edit, Trash2, Save, X, Loader2 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { Tag, Plus, Edit, Trash2 } from 'lucide-react';
 import { ADVERTISER_CATEGORIES } from '@/lib/constants/categories';
 import { GENERAL_SERVICES, SPECIAL_SERVICES } from '@/lib/constants/services';
 
 export default function CategoriesManagement() {
-    const [categories, setCategories] = useState<string[]>(ADVERTISER_CATEGORIES);
-    const [generalServices, setGeneralServices] = useState<string[]>(GENERAL_SERVICES);
-    const [specialServices, setSpecialServices] = useState<string[]>(SPECIAL_SERVICES);
-    
+    const [categories, setCategories] = useState<string[]>([...ADVERTISER_CATEGORIES]);
+    const [generalServices, setGeneralServices] = useState<string[]>([...GENERAL_SERVICES]);
+    const [specialServices, setSpecialServices] = useState<string[]>([...SPECIAL_SERVICES]);
+
     const [editingCategory, setEditingCategory] = useState<string | null>(null);
     const [editingGeneralService, setEditingGeneralService] = useState<string | null>(null);
     const [editingSpecialService, setEditingSpecialService] = useState<string | null>(null);
-    
+
     const [newCategory, setNewCategory] = useState('');
     const [newGeneralService, setNewGeneralService] = useState('');
     const [newSpecialService, setNewSpecialService] = useState('');
@@ -103,7 +102,7 @@ export default function CategoriesManagement() {
                         Categorias de Anúncios
                     </h2>
                 </div>
-                
+
                 <div className="flex gap-2 mb-4">
                     <input
                         type="text"
@@ -152,12 +151,14 @@ export default function CategoriesManagement() {
                                         <button
                                             onClick={() => setEditingCategory(category)}
                                             className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors"
+                                            aria-label="Editar categoria"
                                         >
                                             <Edit className="w-4 h-4" />
                                         </button>
                                         <button
                                             onClick={() => handleDeleteCategory(category)}
                                             className="p-1.5 text-destructive hover:bg-destructive/10 rounded transition-colors"
+                                            aria-label="Deletar categoria"
                                         >
                                             <Trash2 className="w-4 h-4" />
                                         </button>
@@ -177,7 +178,7 @@ export default function CategoriesManagement() {
                         Serviços Gerais
                     </h2>
                 </div>
-                
+
                 <div className="flex gap-2 mb-4">
                     <input
                         type="text"
@@ -226,12 +227,14 @@ export default function CategoriesManagement() {
                                         <button
                                             onClick={() => setEditingGeneralService(service)}
                                             className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors"
+                                            aria-label="Editar serviço geral"
                                         >
                                             <Edit className="w-4 h-4" />
                                         </button>
                                         <button
                                             onClick={() => handleDeleteGeneralService(service)}
                                             className="p-1.5 text-destructive hover:bg-destructive/10 rounded transition-colors"
+                                            aria-label="Deletar serviço geral"
                                         >
                                             <Trash2 className="w-4 h-4" />
                                         </button>
@@ -251,7 +254,7 @@ export default function CategoriesManagement() {
                         Serviços Especiais
                     </h2>
                 </div>
-                
+
                 <div className="flex gap-2 mb-4">
                     <input
                         type="text"
@@ -300,12 +303,14 @@ export default function CategoriesManagement() {
                                         <button
                                             onClick={() => setEditingSpecialService(service)}
                                             className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors"
+                                            aria-label="Editar serviço especial"
                                         >
                                             <Edit className="w-4 h-4" />
                                         </button>
                                         <button
                                             onClick={() => handleDeleteSpecialService(service)}
                                             className="p-1.5 text-destructive hover:bg-destructive/10 rounded transition-colors"
+                                            aria-label="Deletar serviço especial"
                                         >
                                             <Trash2 className="w-4 h-4" />
                                         </button>

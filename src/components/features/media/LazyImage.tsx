@@ -10,15 +10,18 @@ interface LazyImageProps {
     onError?: () => void;
 }
 
-export function LazyImage({ 
-    src, 
-    alt, 
+export function LazyImage({
+    src,
+    alt,
     className,
     placeholder = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAwIiBoZWlnaHQ9IjYwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZGRkIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtc2l6ZT0iMTgiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIiBmaWxsPSIjOTk5Ij5DYXJyZWdhbmRvLi4uPC90ZXh0Pjwvc3ZnPg==',
     onLoad,
     onError
 }: LazyImageProps) {
-    const [isLoaded, setIsLoaded] = useState(false);
+    const [isLoaded, setIsLoaded] = useState(() => {
+        // Initialize as loaded if IntersectionObserver is not supported (fallback)
+        return typeof window !== 'undefined' && !('IntersectionObserver' in window);
+    });
     const [hasError, setHasError] = useState(false);
     const imgRef = useRef<HTMLImageElement>(null);
     const observerRef = useRef<IntersectionObserver | null>(null);
@@ -44,14 +47,14 @@ export function LazyImage({
             );
 
             observerRef.current.observe(imgRef.current);
-        } else {
-            // Fallback: load immediately if IntersectionObserver not supported
-            setIsLoaded(true);
         }
 
+        const currentObserver = observerRef.current;
+        const currentImg = imgRef.current;
+
         return () => {
-            if (observerRef.current && imgRef.current) {
-                observerRef.current.unobserve(imgRef.current);
+            if (currentObserver && currentImg) {
+                currentObserver.unobserve(currentImg);
             }
         };
     }, [src, isLoaded, hasError, onLoad, onError]);
@@ -68,6 +71,11 @@ export function LazyImage({
                     className
                 )}
                 loading="lazy"
+                onLoad={() => onLoad?.()}
+                onError={() => {
+                    setHasError(true);
+                    onError?.();
+                }}
             />
             {hasError && (
                 <div className="absolute inset-0 flex items-center justify-center bg-muted text-muted-foreground text-sm">

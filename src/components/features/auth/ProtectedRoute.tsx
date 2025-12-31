@@ -20,7 +20,7 @@ export default function ProtectedRoute({ allowedRoles }: ProtectedRouteProps) {
         return <Navigate to="/login" replace />;
     }
 
-    if (allowedRoles && role && !allowedRoles.includes(role)) {
+    if (allowedRoles && role && !allowedRoles.includes(role as 'visitor' | 'advertiser' | 'super_admin')) {
         // Optional: Redirect to unauthorized page or home
         return <Navigate to="/" replace />;
     }

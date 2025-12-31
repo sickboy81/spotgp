@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { Video, X, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -8,17 +7,17 @@ interface VideoGridProps {
     maxVideos?: number;
 }
 
-export function VideoGrid({ 
-    videos, 
-    onVideosChange, 
+export function VideoGrid({
+    videos,
+    onVideosChange,
     maxVideos = 3
 }: VideoGridProps) {
-    const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const files = Array.from(e.target.files || []);
-        const remainingSlots = maxVideos - videos.length;
-        const newVideos = files.slice(0, remainingSlots);
-        onVideosChange([...videos, ...newVideos]);
-    };
+    // const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    //     const files = Array.from(e.target.files || []);
+    //     const remainingSlots = maxVideos - videos.length;
+    //     const newVideos = files.slice(0, remainingSlots);
+    //     onVideosChange([...videos, ...newVideos]);
+    // };
 
     const handleRemove = (index: number) => {
         const newVideos = videos.filter((_, i) => i !== index);
@@ -38,15 +37,16 @@ export function VideoGrid({
                 )}
                 onClick={() => {
                     if (!previewUrl) {
-                        document.getElementById(`video-input-${index}`)?.click();
+                        document.getElementById(`video - input - ${index} `)?.click();
                     }
                 }}
             >
                 <input
-                    id={`video-input-${index}`}
+                    id={`video - input - ${index} `}
                     type="file"
                     accept="video/*"
                     className="hidden"
+                    aria-label="Upload de vídeo"
                     onChange={(e) => {
                         const file = e.target.files?.[0];
                         if (file) {
@@ -56,11 +56,11 @@ export function VideoGrid({
                         }
                     }}
                 />
-                
+
                 {previewUrl ? (
                     <>
-                        <video 
-                            src={previewUrl} 
+                        <video
+                            src={previewUrl}
                             className="w-full h-full object-cover rounded-lg"
                             controls={false}
                             muted
@@ -71,6 +71,7 @@ export function VideoGrid({
                                 handleRemove(index);
                             }}
                             className="absolute top-1 right-1 bg-destructive text-white rounded-full p-1 hover:bg-destructive/90 transition-colors"
+                            aria-label="Remover vídeo"
                         >
                             <X className="w-3 h-3" />
                         </button>

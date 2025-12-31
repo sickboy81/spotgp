@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { MessageSquare, Search, Eye, Trash2, User, Calendar, Loader2, AlertTriangle, Filter } from 'lucide-react';
+import { MessageSquare, Search, AlertTriangle, Loader2, User, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { supabase } from '@/lib/supabase';
+import { pb } from '@/lib/pocketbase';
 import { getConversationMessages, getAllConversations } from '@/lib/api/messages';
 
 interface Conversation {
@@ -10,10 +10,12 @@ interface Conversation {
     participant2_id: string;
     participant1_name?: string;
     participant2_name?: string;
-    last_message_at: string | null;
-    created_at: string;
     message_count?: number;
     unread_count?: number;
+    last_message?: string;
+    last_message_at?: string | null;
+    created: string;
+    updated: string;
 }
 
 interface Message {
@@ -23,7 +25,8 @@ interface Message {
     sender_name?: string;
     content: string;
     is_read: boolean;
-    created_at: string;
+    created: string;
+    updated: string;
 }
 
 export default function ChatManagement() {
@@ -55,37 +58,39 @@ export default function ChatManagement() {
             const conversationsWithNames = await Promise.all(
                 (data || []).map(async (conv) => {
                     try {
-                        // Get participant 1 name
-                        const { data: p1 } = await supabase
-                            .from('profiles')
-                            .select('display_name')
-                            .eq('id', conv.participant1_id)
-                            .single();
+                        let p1Name = 'Usuário desconhecido';
+                        let p2Name = 'Usuário desconhecido';
 
-                        // Get participant 2 name
-                        const { data: p2 } = await supabase
-                            .from('profiles')
-                            .select('display_name')
-                            .eq('id', conv.participant2_id)
-                            .single();
+                        try {
+                            const p1 = await pb.collection('profiles').getOne(conv.participant1_id, { fields: 'display_name' });
+                            p1Name = p1.display_name || p1Name;
+                        } catch { /* ignore */ }
+
+                        try {
+                            const p2 = await pb.collection('profiles').getOne(conv.participant2_id, { fields: 'display_name' });
+                            p2Name = p2.display_name || p2Name;
+                        } catch { /* ignore */ }
 
                         // Count messages
-                        const { count: messageCount } = await supabase
-                            .from('messages')
-                            .select('*', { count: 'exact', head: true })
-                            .eq('conversation_id', conv.id);
+                        // PB doesn't have a direct count method easily without fetching lists, 
+                        // but we can use getList(1, 1, filter) to get totalItems
+                        const messagesResult = await pb.collection('messages').getList(1, 1, {
+                            filter: `conversation_id = "${conv.id}"`,
+                            fields: 'id'
+                        });
+                        const messageCount = messagesResult.totalItems;
 
                         // Count unread messages
-                        const { count: unreadCount } = await supabase
-                            .from('messages')
-                            .select('*', { count: 'exact', head: true })
-                            .eq('conversation_id', conv.id)
-                            .eq('is_read', false);
+                        const unreadResult = await pb.collection('messages').getList(1, 1, {
+                            filter: `conversation_id = "${conv.id}" && is_read = false`,
+                            fields: 'id'
+                        });
+                        const unreadCount = unreadResult.totalItems;
 
                         return {
                             ...conv,
-                            participant1_name: p1?.display_name || 'Usuário desconhecido',
-                            participant2_name: p2?.display_name || 'Usuário desconhecido',
+                            participant1_name: p1Name,
+                            participant2_name: p2Name,
                             message_count: messageCount || 0,
                             unread_count: unreadCount || 0,
                         };
@@ -119,17 +124,19 @@ export default function ChatManagement() {
             const messagesWithNames = await Promise.all(
                 messagesData.map(async (msg) => {
                     try {
-                        const { data: sender } = await supabase
-                            .from('profiles')
-                            .select('display_name')
-                            .eq('id', msg.sender_id)
-                            .single();
+                        let senderName = msg.sender?.display_name || 'Usuário desconhecido';
+                        if (!msg.sender?.display_name && msg.sender_id) {
+                            try {
+                                const sender = await pb.collection('profiles').getOne(msg.sender_id, { fields: 'display_name' });
+                                senderName = sender.display_name || senderName;
+                            } catch { /* ignore */ }
+                        }
 
                         return {
                             ...msg,
-                            sender_name: sender?.display_name || msg.sender?.display_name || 'Usuário desconhecido',
+                            sender_name: senderName,
                         };
-                    } catch (err) {
+                    } catch {
                         return {
                             ...msg,
                             sender_name: msg.sender?.display_name || 'Usuário desconhecido',
@@ -151,18 +158,19 @@ export default function ChatManagement() {
 
         try {
             // Delete all messages first
-            await supabase
-                .from('messages')
-                .delete()
-                .eq('conversation_id', conversationId);
+            // We need to fetch all message IDs first then delete them loop
+            // Or if we can't batch delete, just delete conversation and cascade?
+            // Assuming no cascade:
+            const msgs = await pb.collection('messages').getFullList({
+                filter: `conversation_id = "${conversationId}"`,
+                fields: 'id'
+            });
+            for (const m of msgs) {
+                await pb.collection('messages').delete(m.id);
+            }
 
             // Delete conversation
-            const { error } = await supabase
-                .from('conversations')
-                .delete()
-                .eq('id', conversationId);
-
-            if (error) throw error;
+            await pb.collection('conversations').delete(conversationId);
 
             setConversations(conversations.filter(c => c.id !== conversationId));
             if (selectedConversation?.id === conversationId) {
@@ -179,12 +187,7 @@ export default function ChatManagement() {
         if (!confirm('Tem certeza que deseja deletar esta mensagem?')) return;
 
         try {
-            const { error } = await supabase
-                .from('messages')
-                .delete()
-                .eq('id', messageId);
-
-            if (error) throw error;
+            await pb.collection('messages').delete(messageId);
 
             setMessages(messages.filter(m => m.id !== messageId));
         } catch (err) {
@@ -194,12 +197,12 @@ export default function ChatManagement() {
     };
 
     const filteredConversations = conversations.filter(conv => {
-        const matchesSearch = 
+        const matchesSearch =
             conv.participant1_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
             conv.participant2_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
             conv.participant1_id.toLowerCase().includes(searchTerm.toLowerCase()) ||
             conv.participant2_id.toLowerCase().includes(searchTerm.toLowerCase());
-        
+
         const matchesFilter = !filterUnread || (conv.unread_count || 0) > 0;
 
         return matchesSearch && matchesFilter;
@@ -266,7 +269,7 @@ export default function ChatManagement() {
                         <div>
                             <p className="text-sm text-muted-foreground">Conversas Ativas</p>
                             <p className="text-2xl font-bold mt-1">
-                                {conversations.filter(c => c.last_message_at && 
+                                {conversations.filter(c => c.last_message_at &&
                                     new Date(c.last_message_at) > new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
                                 ).length}
                             </p>
@@ -379,9 +382,9 @@ export default function ChatManagement() {
                                         </h3>
                                         <p className="text-sm text-muted-foreground">
                                             {selectedConversation.message_count || 0} mensagens
-                                            {selectedConversation.created_at && (
+                                            {selectedConversation.created && (
                                                 <span className="ml-2">
-                                                    • Criada em {new Date(selectedConversation.created_at).toLocaleDateString('pt-BR')}
+                                                    • Criada em {new Date(selectedConversation.created).toLocaleDateString('pt-BR')}
                                                 </span>
                                             )}
                                         </p>
@@ -426,7 +429,7 @@ export default function ChatManagement() {
                                                 <div className="flex items-center gap-2 mb-1">
                                                     <span className="font-medium text-sm">{message.sender_name}</span>
                                                     <span className="text-xs text-muted-foreground">
-                                                        {new Date(message.created_at).toLocaleString('pt-BR')}
+                                                        {new Date(message.created).toLocaleString('pt-BR')}
                                                     </span>
                                                     {!message.is_read && (
                                                         <span className="px-2 py-0.5 bg-primary text-white text-xs rounded">

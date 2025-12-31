@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react';
-import { AlertTriangle, Check, X, Eye, Ban, Trash2, Search, ExternalLink, Loader2 } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { AlertTriangle, Check, X, Eye, Ban, Search, ExternalLink, Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { getReports, updateReport, ReportWithProfile } from '@/lib/api/reports';
-import { supabase } from '@/lib/supabase';
+import { banUser } from '@/lib/api/moderation';
 import { useAuth } from '@/hooks/useAuth';
 
 export default function Moderation() {
@@ -13,11 +13,9 @@ export default function Moderation() {
     const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'reviewed' | 'resolved' | 'dismissed'>('all');
     const [reports, setReports] = useState<ReportWithProfile[]>([]);
 
-    useEffect(() => {
-        loadReports();
-    }, [filterStatus]);
 
-    const loadReports = async () => {
+
+    const loadReports = useCallback(async () => {
         setLoading(true);
         try {
             const data = await getReports({
@@ -29,20 +27,24 @@ export default function Moderation() {
         } finally {
             setLoading(false);
         }
-    };
+    }, [filterStatus]);
+
+    useEffect(() => {
+        loadReports();
+    }, [loadReports]);
 
     const filteredReports = reports.filter(report => {
         const profileName = report.reported_profile?.display_name || report.profile_id;
         const reporterId = report.reported_by || '';
         const matchesSearch = profileName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                             reporterId.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                             report.description.toLowerCase().includes(searchQuery.toLowerCase());
+            reporterId.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            report.description.toLowerCase().includes(searchQuery.toLowerCase());
         return matchesSearch;
     });
 
     const handleStatusChange = async (id: string, status: ReportWithProfile['status']) => {
         try {
-            const result = await updateReport(id, { 
+            const result = await updateReport(id, {
                 status,
                 reviewed_by: user?.id || null,
                 reviewed_at: new Date().toISOString(),
@@ -52,7 +54,7 @@ export default function Moderation() {
             } else {
                 alert(result.error || 'Erro ao atualizar report');
             }
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('Error updating report:', error);
             alert('Erro ao atualizar report');
         }
@@ -60,26 +62,23 @@ export default function Moderation() {
 
     const handleBan = async (reportId: string, profileId: string) => {
         if (!confirm('Tem certeza que deseja banir este usuário?')) return;
-        
+
         try {
             // Ban the user
-            const { error: banError } = await supabase
-                .from('profiles')
-                .update({ is_banned: true })
-                .eq('id', profileId);
+            const result = await banUser(profileId);
 
-            if (banError) throw banError;
+            if (!result.success) throw new Error(result.error);
 
             // Update report status
             await handleStatusChange(reportId, 'resolved');
             alert('Usuário banido com sucesso.');
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('Error banning user:', error);
             alert('Erro ao banir usuário');
         }
     };
 
-    const getStatusColor = (status: Report['status']) => {
+    const getStatusColor = (status: ReportWithProfile['status']) => {
         switch (status) {
             case 'pending': return 'bg-orange-500/10 text-orange-600 border-orange-500/20';
             case 'reviewed': return 'bg-blue-500/10 text-blue-600 border-blue-500/20';
@@ -158,10 +157,10 @@ export default function Moderation() {
                                     : "bg-muted text-muted-foreground hover:bg-muted/80"
                             )}
                         >
-                            {status === 'all' ? 'Todos' : 
-                             status === 'pending' ? 'Pendentes' :
-                             status === 'reviewed' ? 'Revisados' :
-                             status === 'resolved' ? 'Resolvidos' : 'Descartados'}
+                            {status === 'all' ? 'Todos' :
+                                status === 'pending' ? 'Pendentes' :
+                                    status === 'reviewed' ? 'Revisados' :
+                                        status === 'resolved' ? 'Resolvidos' : 'Descartados'}
                         </button>
                     ))}
                 </div>
@@ -183,7 +182,7 @@ export default function Moderation() {
                     filteredReports.map((report) => {
                         const profileName = report.reported_profile?.display_name || 'Perfil sem nome';
                         const profileId = report.profile_id;
-                        
+
                         return (
                             <div key={report.id} className="bg-card border border-border rounded-xl p-6">
                                 <div className="flex items-start justify-between mb-4">
@@ -194,8 +193,8 @@ export default function Moderation() {
                                             </span>
                                             <span className={cn("px-2 py-1 rounded-full text-xs font-medium border", getStatusColor(report.status))}>
                                                 {report.status === 'pending' ? 'Pendente' :
-                                                 report.status === 'reviewed' ? 'Revisado' :
-                                                 report.status === 'resolved' ? 'Resolvido' : 'Descartado'}
+                                                    report.status === 'reviewed' ? 'Revisado' :
+                                                        report.status === 'resolved' ? 'Resolvido' : 'Descartado'}
                                             </span>
                                         </div>
                                         <div className="flex items-center gap-2 mb-2">
@@ -206,7 +205,7 @@ export default function Moderation() {
                                                 </span>
                                             )}
                                             <Link
-                                                to={`/profile/${profileId}`}
+                                                to={`/ profile / ${profileId} `}
                                                 target="_blank"
                                                 className="text-primary hover:underline flex items-center gap-1 text-xs"
                                             >
@@ -221,11 +220,11 @@ export default function Moderation() {
                                         )}
                                         <p className="text-sm text-muted-foreground mb-2">{report.description}</p>
                                         <p className="text-xs text-muted-foreground mt-2">
-                                            {formatDate(report.created_at)}
+                                            {formatDate(report.created)}
                                         </p>
                                     </div>
                                 </div>
-                                
+
                                 <div className="flex items-center gap-2 pt-4 border-t border-border flex-wrap">
                                     {report.status === 'pending' && (
                                         <button

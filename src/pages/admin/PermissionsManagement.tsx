@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Shield, Users, UserPlus, Trash2, Edit, Save, X, Lock, Unlock, Loader2 } from 'lucide-react';
-import { cn } from '@/lib/utils';
-import { supabase } from '@/lib/supabase';
+import { Shield, UserPlus, Edit, Save, X } from 'lucide-react';
+import { pb } from '@/lib/pocketbase';
 
 interface Role {
     id: string;
@@ -9,6 +8,8 @@ interface Role {
     permissions: string[];
     description: string;
     user_count?: number;
+    created?: string;
+    updated?: string;
 }
 
 interface Permission {
@@ -25,61 +26,63 @@ const AVAILABLE_PERMISSIONS: Permission[] = [
     { id: 'users.delete', name: 'Deletar Usuários', description: 'Remover usuários permanentemente', category: 'users' },
     { id: 'users.ban', name: 'Banir Usuários', description: 'Banir/desbanir usuários', category: 'users' },
     { id: 'users.verify', name: 'Verificar Usuários', description: 'Aprovar/rejeitar verificação', category: 'users' },
-    
+
     // Content
     { id: 'content.view', name: 'Ver Conteúdo', description: 'Visualizar anúncios e perfis', category: 'content' },
     { id: 'content.edit', name: 'Editar Conteúdo', description: 'Editar anúncios e perfis', category: 'content' },
     { id: 'content.delete', name: 'Deletar Conteúdo', description: 'Remover anúncios e perfis', category: 'content' },
     { id: 'content.moderate', name: 'Moderar Conteúdo', description: 'Moderar conteúdo de usuários', category: 'content' },
     { id: 'content.feature', name: 'Destacar Conteúdo', description: 'Adicionar aos destaques', category: 'content' },
-    
+
     // Financial
     { id: 'financial.view', name: 'Ver Financeiro', description: 'Visualizar transações', category: 'financial' },
     { id: 'financial.edit', name: 'Editar Financeiro', description: 'Editar transações', category: 'financial' },
     { id: 'financial.refund', name: 'Reembolsar', description: 'Processar reembolsos', category: 'financial' },
-    
+
     // System
     { id: 'system.settings', name: 'Configurações', description: 'Acessar configurações do sistema', category: 'system' },
     { id: 'system.backup', name: 'Backup', description: 'Criar e restaurar backups', category: 'system' },
     { id: 'system.logs', name: 'Ver Logs', description: 'Visualizar logs do sistema', category: 'system' },
-    
+
     // Reports
     { id: 'reports.view', name: 'Ver Reports', description: 'Visualizar denúncias', category: 'reports' },
     { id: 'reports.resolve', name: 'Resolver Reports', description: 'Resolver denúncias', category: 'reports' },
 ];
 
+const DEFAULT_ROLES: Role[] = [
+    {
+        id: 'super_admin',
+        name: 'Super Admin',
+        permissions: AVAILABLE_PERMISSIONS.map(p => p.id),
+        description: 'Acesso total ao sistema',
+        user_count: 1,
+    },
+    {
+        id: 'admin',
+        name: 'Administrador',
+        permissions: ['users.view', 'users.edit', 'content.view', 'content.edit', 'content.moderate', 'reports.view', 'reports.resolve'],
+        description: 'Acesso administrativo padrão',
+        user_count: 0,
+    },
+    {
+        id: 'moderator',
+        name: 'Moderador',
+        permissions: ['users.view', 'content.view', 'content.moderate', 'reports.view', 'reports.resolve'],
+        description: 'Moderar conteúdo e reports',
+        user_count: 0,
+    },
+    {
+        id: 'support',
+        name: 'Suporte',
+        permissions: ['users.view', 'reports.view'],
+        description: 'Visualizar usuários e reports',
+        user_count: 0,
+    },
+];
+
 export default function PermissionsManagement() {
-    const [roles, setRoles] = useState<Role[]>([
-        {
-            id: 'super_admin',
-            name: 'Super Admin',
-            permissions: AVAILABLE_PERMISSIONS.map(p => p.id),
-            description: 'Acesso total ao sistema',
-            user_count: 1,
-        },
-        {
-            id: 'admin',
-            name: 'Administrador',
-            permissions: ['users.view', 'users.edit', 'content.view', 'content.edit', 'content.moderate', 'reports.view', 'reports.resolve'],
-            description: 'Acesso administrativo padrão',
-            user_count: 0,
-        },
-        {
-            id: 'moderator',
-            name: 'Moderador',
-            permissions: ['users.view', 'content.view', 'content.moderate', 'reports.view', 'reports.resolve'],
-            description: 'Moderar conteúdo e reports',
-            user_count: 0,
-        },
-        {
-            id: 'support',
-            name: 'Suporte',
-            permissions: ['users.view', 'reports.view'],
-            description: 'Visualizar usuários e reports',
-            user_count: 0,
-        },
-    ]);
-    
+    const [roles, setRoles] = useState<Role[]>([]);
+    const [loading, setLoading] = useState(true);
     const [editingRole, setEditingRole] = useState<string | null>(null);
     const [selectedPermissions, setSelectedPermissions] = useState<string[]>([]);
     const [showCreateRole, setShowCreateRole] = useState(false);
@@ -91,35 +94,94 @@ export default function PermissionsManagement() {
         return acc;
     }, {} as Record<string, Permission[]>);
 
+    useEffect(() => {
+        loadRoles();
+    }, []);
+
+    const loadRoles = async () => {
+        setLoading(true);
+        try {
+            const result = await pb.collection('roles').getList<Role>(1, 50, {
+                sort: 'name',
+            });
+            setRoles(result.items);
+        } catch (err) {
+            console.warn('Could not load roles from DB, using defaults:', err);
+            setRoles(DEFAULT_ROLES);
+        } finally {
+            setLoading(false);
+        }
+    };
+
     const handleEditRole = (role: Role) => {
         setEditingRole(role.id);
         setSelectedPermissions([...role.permissions]);
     };
 
-    const handleSaveRole = (roleId: string) => {
-        setRoles(roles.map(r => 
-            r.id === roleId 
-                ? { ...r, permissions: selectedPermissions }
-                : r
-        ));
-        setEditingRole(null);
-        // TODO: Save to database
+    const handleSaveRole = async (roleId: string) => {
+        try {
+            // Find if it's a default role (which likely doesn't exist in DB if we fell back)
+            const isDefault = DEFAULT_ROLES.some(r => r.id === roleId);
+
+            if (isDefault) {
+                // If it's a default role and we are in fallback mode, we can't really save to DB unless we create it first
+                // For now, just update local state
+                setRoles(roles.map(r => r.id === roleId ? { ...r, permissions: selectedPermissions } : r));
+                setEditingRole(null);
+                alert('Role updated locally (DB not connected for roles)');
+                return;
+            }
+
+            await pb.collection('roles').update(roleId, {
+                permissions: selectedPermissions
+            });
+
+            setRoles(roles.map(r =>
+                r.id === roleId
+                    ? { ...r, permissions: selectedPermissions }
+                    : r
+            ));
+            setEditingRole(null);
+            alert('Permissões atualizadas com sucesso!');
+        } catch (err: any) {
+            console.error('Error updating role:', err);
+            alert(`Erro ao atualizar role: ${err.message}`);
+        }
     };
 
-    const handleCreateRole = () => {
+    const handleCreateRole = async () => {
         if (newRole.name.trim()) {
-            const role: Role = {
-                id: newRole.name.toLowerCase().replace(/\s+/g, '_'),
-                name: newRole.name,
-                description: newRole.description,
-                permissions: selectedPermissions,
-                user_count: 0,
-            };
-            setRoles([...roles, role]);
-            setNewRole({ name: '', description: '' });
-            setSelectedPermissions([]);
-            setShowCreateRole(false);
-            // TODO: Save to database
+            try {
+                const roleData = {
+                    name: newRole.name,
+                    description: newRole.description,
+                    permissions: selectedPermissions,
+                    user_count: 0,
+                };
+
+                const created = await pb.collection('roles').create(roleData);
+
+                setRoles([...roles, created as unknown as Role]);
+                setNewRole({ name: '', description: '' });
+                setSelectedPermissions([]);
+                setShowCreateRole(false);
+                alert('Role criada com sucesso!');
+            } catch (err: any) {
+                console.error('Error creating role:', err);
+                // Fallback for demo/dev if collection missing
+                const mockRole: Role = {
+                    id: `role_${Date.now()}`,
+                    name: newRole.name,
+                    description: newRole.description,
+                    permissions: selectedPermissions,
+                    user_count: 0
+                };
+                setRoles([...roles, mockRole]);
+                setNewRole({ name: '', description: '' });
+                setSelectedPermissions([]);
+                setShowCreateRole(false);
+                alert('Role criada localmente (DB error)');
+            }
         }
     };
 
@@ -141,6 +203,10 @@ export default function PermissionsManagement() {
         };
         return labels[category] || category;
     };
+
+    if (loading) {
+        return <div className="p-8 text-center">Carregando permissões...</div>;
+    }
 
     return (
         <div className="space-y-6">
@@ -255,6 +321,8 @@ export default function PermissionsManagement() {
                                     <button
                                         onClick={() => handleSaveRole(role.id)}
                                         className="p-2 text-green-600 hover:bg-green-500/10 rounded transition-colors"
+                                        aria-label={`Salvar alterações na role ${role.name}`}
+                                        title="Salvar alterações"
                                     >
                                         <Save className="w-4 h-4" />
                                     </button>
@@ -264,6 +332,8 @@ export default function PermissionsManagement() {
                                             setSelectedPermissions([]);
                                         }}
                                         className="p-2 text-muted-foreground hover:bg-muted rounded transition-colors"
+                                        aria-label="Cancelar edição"
+                                        title="Cancelar edição"
                                     >
                                         <X className="w-4 h-4" />
                                     </button>
@@ -272,6 +342,8 @@ export default function PermissionsManagement() {
                                 <button
                                     onClick={() => handleEditRole(role)}
                                     className="p-2 text-primary hover:bg-primary/10 rounded transition-colors"
+                                    aria-label={`Editar role ${role.name}`}
+                                    title="Editar role"
                                 >
                                     <Edit className="w-4 h-4" />
                                 </button>
@@ -323,5 +395,3 @@ export default function PermissionsManagement() {
         </div>
     );
 }
-
-

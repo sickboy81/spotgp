@@ -17,7 +17,7 @@ export function ConversationList({ onSelectConversation, selectedConversationId 
     useEffect(() => {
         if (user?.id) {
             loadConversations();
-            
+
             // Poll for new conversations every 5 seconds
             const interval = setInterval(() => {
                 loadConversations();
@@ -29,7 +29,7 @@ export function ConversationList({ onSelectConversation, selectedConversationId 
 
     const loadConversations = async () => {
         if (!user?.id) return;
-        
+
         setLoading(true);
         try {
             const data = await getUserConversations(user.id);
@@ -39,22 +39,6 @@ export function ConversationList({ onSelectConversation, selectedConversationId 
         } finally {
             setLoading(false);
         }
-    };
-
-    const formatTime = (dateString: string | null) => {
-        if (!dateString) return '';
-        const date = new Date(dateString);
-        const now = new Date();
-        const diffMs = now.getTime() - date.getTime();
-        const diffMins = Math.floor(diffMs / 60000);
-        const diffHours = Math.floor(diffMs / 3600000);
-        const diffDays = Math.floor(diffMs / 86400000);
-
-        if (diffMins < 1) return 'Agora';
-        if (diffMins < 60) return `${diffMins}min`;
-        if (diffHours < 24) return `${diffHours}h`;
-        if (diffDays < 7) return `${diffDays}d`;
-        return date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
     };
 
     const getLastMessagePreview = (conversation: ConversationWithParticipant) => {
@@ -86,7 +70,7 @@ export function ConversationList({ onSelectConversation, selectedConversationId 
                     {conversations.map((conversation) => {
                         const otherUser = conversation.other_participant;
                         const isSelected = conversation.id === selectedConversationId;
-                        
+
                         return (
                             <button
                                 key={conversation.id}
@@ -113,7 +97,7 @@ export function ConversationList({ onSelectConversation, selectedConversationId 
                                             </h3>
                                             {conversation.last_message && (
                                                 <span className="text-xs text-muted-foreground flex-shrink-0 ml-2">
-                                                    {formatTime(conversation.last_message.created_at)}
+                                                    {new Date(conversation.created).toLocaleDateString()}
                                                 </span>
                                             )}
                                         </div>

@@ -119,7 +119,7 @@ export const BRAZILIAN_CITIES: Record<string, CityCoordinate> = {
     'Itu': { lat: -23.2639, lng: -47.2989, state: 'SP' },
     'Jacareí': { lat: -23.3053, lng: -45.9658, state: 'SP' },
     'Jandira': { lat: -23.5278, lng: -46.9028, state: 'SP' },
-    'Mauá': { lat: -23.6678, lng: -46.4614, state: 'SP' },
+    // 'Mauá': { lat: -23.6678, lng: -46.4614, state: 'SP' }, // Duplicate key
     'Ourinhos': { lat: -22.9792, lng: -49.8697, state: 'SP' },
     'Pindamonhangaba': { lat: -22.9239, lng: -45.4617, state: 'SP' },
     'Poá': { lat: -23.5283, lng: -46.3447, state: 'SP' },
@@ -376,7 +376,7 @@ export const BRAZILIAN_CITIES: Record<string, CityCoordinate> = {
     'Pedreiras': { lat: -4.5658, lng: -44.6011, state: 'MA' },
     'Pinheiro': { lat: -2.5192, lng: -45.0811, state: 'MA' },
     'Santa Inês': { lat: -3.6631, lng: -45.3781, state: 'MA' },
-    'Santa Luzia': { lat: -4.0689, lng: -40.6897, state: 'MA' },
-    'Viana': { lat: -3.2203, lng: -44.9917, state: 'MA' },
+    // 'Santa Luzia': { lat: -4.0689, lng: -40.6897, state: 'MA' }, // Duplicate key
+    // 'Viana': { lat: -3.2203, lng: -44.9917, state: 'MA' }, // Duplicate key
     'Zé Doca': { lat: -3.2722, lng: -45.6553, state: 'MA' },
 };

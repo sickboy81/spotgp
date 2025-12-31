@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { Upload, X, Image as ImageIcon, Check } from 'lucide-react';
+import { X, Image as ImageIcon, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface DocumentUploaderProps {
@@ -22,7 +22,7 @@ export function DocumentUploader({
     maxSizeMB = 5
 }: DocumentUploaderProps) {
     const [preview, setPreview] = useState<string | null>(value || null);
-    const [uploading, setUploading] = useState(false);
+    // const [uploading, setUploading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -104,7 +104,7 @@ export function DocumentUploader({
                     className={cn(
                         "flex flex-col items-center justify-center w-full h-48 border-2 border-dashed rounded-lg cursor-pointer transition-colors",
                         "hover:bg-muted/50 border-border hover:border-primary",
-                        uploading && "opacity-50 cursor-not-allowed"
+                        // uploading && "opacity-50 cursor-not-allowed"
                     )}
                 >
                     <input
@@ -113,7 +113,7 @@ export function DocumentUploader({
                         className="hidden"
                         accept={accept}
                         onChange={handleFileSelect}
-                        disabled={uploading}
+                        disabled={false}
                     />
                     <div className="flex flex-col items-center justify-center pt-5 pb-6">
                         <ImageIcon className="w-10 h-10 text-muted-foreground mb-3" />

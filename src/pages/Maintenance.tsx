@@ -51,7 +51,7 @@ export default function Maintenance() {
 
                 {/* Footer */}
                 <div className="pt-8 text-sm text-muted-foreground">
-                    <p>© {new Date().getFullYear()} ACOMPANHANTES AGORA. Todos os direitos reservados.</p>
+                    <p>© {new Date().getFullYear()} SpotGP. Todos os direitos reservados.</p>
                 </div>
             </div>
         </div>

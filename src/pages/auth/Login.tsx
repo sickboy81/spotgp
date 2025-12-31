@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { supabase } from '@/lib/supabase';
+import { pb } from '@/lib/pocketbase';
 import { cn } from '@/lib/utils';
 import { motion } from 'framer-motion';
 import { shouldUseMockAuth, authenticateMockUser, createMockSession, setMockSession, initDefaultAdmin } from '@/lib/mock-auth';
@@ -44,7 +44,7 @@ export default function Login() {
             if (useMock) {
                 // Ensure admin is initialized
                 initDefaultAdmin();
-                
+
                 // Use mock authentication
                 const mockUser = authenticateMockUser(email, password);
                 if (!mockUser) {
@@ -53,16 +53,16 @@ export default function Login() {
 
                 const mockSession = createMockSession(mockUser);
                 setMockSession(mockSession);
-                
+
                 console.log('✅ Login successful:', {
                     email: mockUser.email,
                     role: mockUser.role,
                     userId: mockUser.id
                 });
-                
+
                 // Small delay to ensure localStorage is updated
                 await new Promise(resolve => setTimeout(resolve, 100));
-                
+
                 // Navigate based on role
                 if (mockUser.role === 'super_admin') {
                     window.location.href = '/admin';
@@ -70,13 +70,8 @@ export default function Login() {
                     window.location.href = '/dashboard';
                 }
             } else {
-                // Use real Supabase auth
-                const { error } = await supabase.auth.signInWithPassword({
-                    email,
-                    password,
-                });
-
-                if (error) throw error;
+                // Use real PocketBase auth
+                await pb.collection('users').authWithPassword(email, password);
                 navigate('/');
             }
         } catch (err: any) {

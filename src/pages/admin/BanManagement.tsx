@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Ban, Unlock, Globe, Search, Plus, Trash2, AlertTriangle, Loader2 } from 'lucide-react';
+import { Ban, Unlock, Globe, Search, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface BannedIP {
@@ -37,13 +37,13 @@ export default function BanManagement() {
     });
     const [searchTerm, setSearchTerm] = useState('');
 
-    useEffect(() => {
-        loadBans();
-    }, []);
-
     const loadBans = async () => {
         // TODO: Load from database
     };
+
+    useEffect(() => {
+        loadBans();
+    }, []);
 
     const handleAddIPBan = () => {
         if (newIPBan.ip_address.trim()) {
@@ -186,6 +186,7 @@ export default function BanManagement() {
                                         checked={newIPBan.is_permanent}
                                         onChange={(e) => setNewIPBan({ ...newIPBan, is_permanent: e.target.checked })}
                                         className="w-4 h-4"
+                                        aria-label="Bloqueio permanente"
                                     />
                                     <label className="text-sm">Bloqueio permanente</label>
                                 </div>
@@ -197,6 +198,7 @@ export default function BanManagement() {
                                             value={newIPBan.expires_at}
                                             onChange={(e) => setNewIPBan({ ...newIPBan, expires_at: e.target.value })}
                                             className="w-full px-4 py-2 bg-background border border-input rounded-lg focus:ring-2 focus:ring-primary outline-none"
+                                            aria-label="Data e hora de expiração"
                                         />
                                     </div>
                                 )}

@@ -1,18 +1,13 @@
 // API functions for moderation actions
 
-import { supabase } from '../supabase';
+import { pb } from '@/lib/pocketbase';
 
 /**
  * Ban a user
  */
 export async function banUser(userId: string): Promise<{ success: boolean; error?: string }> {
     try {
-        const { error } = await supabase
-            .from('profiles')
-            .update({ is_banned: true })
-            .eq('id', userId);
-
-        if (error) throw error;
+        await pb.collection('profiles').update(userId, { is_banned: true });
         return { success: true };
     } catch (err: any) {
         console.error('Error banning user:', err);
@@ -25,12 +20,7 @@ export async function banUser(userId: string): Promise<{ success: boolean; error
  */
 export async function unbanUser(userId: string): Promise<{ success: boolean; error?: string }> {
     try {
-        const { error } = await supabase
-            .from('profiles')
-            .update({ is_banned: false })
-            .eq('id', userId);
-
-        if (error) throw error;
+        await pb.collection('profiles').update(userId, { is_banned: false });
         return { success: true };
     } catch (err: any) {
         console.error('Error unbanning user:', err);
@@ -45,12 +35,15 @@ export async function deleteUser(userId: string): Promise<{ success: boolean; er
     try {
         // First delete related data (reports, media, etc.)
         // Then delete the profile
-        const { error } = await supabase
-            .from('profiles')
-            .delete()
-            .eq('id', userId);
+        await pb.collection('profiles').delete(userId);
+        // Note: In PB, cascades might handle related data, or we delete users collection record which deletes profile if related using CASCADE.
+        // If we are deleting the user entirely:
+        try {
+            await pb.collection('users').delete(userId);
+        } catch (e) {
+            console.log("Could not delete user auth record or it was already deleted");
+        }
 
-        if (error) throw error;
         return { success: true };
     } catch (err: any) {
         console.error('Error deleting user:', err);
@@ -72,12 +65,7 @@ export async function updateUserProfile(
     }
 ): Promise<{ success: boolean; error?: string }> {
     try {
-        const { error } = await supabase
-            .from('profiles')
-            .update(updates)
-            .eq('id', userId);
-
-        if (error) throw error;
+        await pb.collection('profiles').update(userId, updates);
         return { success: true };
     } catch (err: any) {
         console.error('Error updating user profile:', err);

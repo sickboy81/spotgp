@@ -12,7 +12,7 @@ interface SEOHeadProps {
 }
 
 export function SEOHead({
-    title = 'ACOMPANHANTES AGORA - Acompanhantes e Massagistas',
+    title = 'SpotGP - Acompanhantes e Massagistas',
     description = 'Encontre acompanhantes e massagistas verificados em todo o Brasil. Perfis detalhados, fotos reais e contato direto.',
     image = '/og-image.jpg',
     url,
@@ -22,7 +22,7 @@ export function SEOHead({
     profileCity,
 }: SEOHeadProps) {
     // Build full title
-    const fullTitle = profileName 
+    const fullTitle = profileName
         ? `${profileName} - ${title}`
         : title;
 
@@ -70,7 +70,7 @@ export function SEOHead({
         updateMetaTag('keywords', 'acompanhantes, massagistas, acompanhantes de luxo, massagem, relaxamento, Brasil');
         updateMetaTag('robots', 'index, follow');
         updateMetaTag('language', 'Portuguese');
-        updateMetaTag('author', 'ACOMPANHANTES AGORA');
+        updateMetaTag('author', 'SpotGP');
 
         // Open Graph / Facebook
         updateMetaTag('og:type', type, true);
@@ -78,7 +78,7 @@ export function SEOHead({
         updateMetaTag('og:title', fullTitle, true);
         updateMetaTag('og:description', metaDescription, true);
         updateMetaTag('og:image', imageUrl, true);
-        updateMetaTag('og:site_name', 'ACOMPANHANTES AGORA', true);
+        updateMetaTag('og:site_name', 'SpotGP', true);
         updateMetaTag('og:locale', 'pt_BR', true);
 
         // Twitter

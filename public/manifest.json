@@ -1,6 +1,6 @@
 {
-  "name": "ACOMPANHANTES AGORA",
-  "short_name": "Acompanhantes",
+  "name": "SpotGP",
+  "short_name": "SpotGP",
   "description": "Encontre acompanhantes e massagistas verificados em todo o Brasil. Perfis detalhados, fotos reais e contato direto.",
   "start_url": "/",
   "display": "standalone",
@@ -59,23 +59,34 @@
     }
   ],
   "screenshots": [],
-  "categories": ["lifestyle", "social"],
+  "categories": [
+    "lifestyle",
+    "social"
+  ],
   "shortcuts": [
     {
       "name": "Buscar",
       "short_name": "Buscar",
       "description": "Buscar acompanhantes",
       "url": "/search",
-      "icons": [{ "src": "/icons/icon-192x192.png", "sizes": "192x192" }]
+      "icons": [
+        {
+          "src": "/icons/icon-192x192.png",
+          "sizes": "192x192"
+        }
+      ]
     },
     {
       "name": "Favoritos",
       "short_name": "Favoritos",
       "description": "Ver favoritos",
       "url": "/favorites",
-      "icons": [{ "src": "/icons/icon-192x192.png", "sizes": "192x192" }]
+      "icons": [
+        {
+          "src": "/icons/icon-192x192.png",
+          "sizes": "192x192"
+        }
+      ]
     }
   ]
 }
-
-

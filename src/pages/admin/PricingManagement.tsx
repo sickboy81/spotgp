@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { DollarSign, Plus, Edit, Trash2, Save, X, TrendingUp, Play, Star, Sparkles, CheckCircle } from 'lucide-react';
+import { useState } from 'react';
+import { Plus, Edit, Trash2, Save, X, Play, Star, Sparkles, CheckCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getPricingConfig, savePricingConfig, resetPricingConfig, type BoostPlan, type ExtraFeature, type PricingConfig } from '@/lib/utils/pricing-config';
 
@@ -14,12 +14,9 @@ export default function PricingManagement() {
     const [saved, setSaved] = useState(false);
     const [editingPlan, setEditingPlan] = useState<string | null>(null);
     const [editingFeature, setEditingFeature] = useState<string | null>(null);
-    const [showPlanForm, setShowPlanForm] = useState(false);
-    const [showFeatureForm, setShowFeatureForm] = useState(false);
 
-    useEffect(() => {
-        setConfig(getPricingConfig());
-    }, []);
+
+
 
     const handleSave = () => {
         savePricingConfig(config);
@@ -49,7 +46,6 @@ export default function PricingManagement() {
             plans: [...config.plans, newPlan],
         });
         setEditingPlan(newPlan.id);
-        setShowPlanForm(false);
     };
 
     const handleUpdatePlan = (planId: string, updates: Partial<BoostPlan>) => {
@@ -83,7 +79,6 @@ export default function PricingManagement() {
             extraFeatures: [...config.extraFeatures, newFeature],
         });
         setEditingFeature(newFeature.id);
-        setShowFeatureForm(false);
     };
 
     const handleUpdateFeature = (featureId: string, updates: Partial<ExtraFeature>) => {
@@ -184,6 +179,7 @@ export default function PricingManagement() {
                             onChange={(e) => setConfig({ ...config, mainSection: { ...config.mainSection, title: e.target.value } })}
                             className="w-full px-4 py-2 bg-background border border-input rounded-lg focus:ring-1 focus:ring-primary outline-none"
                             placeholder="Ex: Subidas Automáticas"
+                            aria-label="Título da seção principal"
                         />
                     </div>
                     <div>
@@ -193,6 +189,7 @@ export default function PricingManagement() {
                             onChange={(e) => setConfig({ ...config, mainSection: { ...config.mainSection, description: e.target.value } })}
                             className="w-full px-4 py-2 bg-background border border-input rounded-lg focus:ring-1 focus:ring-primary outline-none min-h-[100px]"
                             placeholder="Descrição da seção..."
+                            aria-label="Descrição da seção principal"
                         />
                     </div>
                     <div>
@@ -203,6 +200,7 @@ export default function PricingManagement() {
                             onChange={(e) => setConfig({ ...config, defaultCity: e.target.value })}
                             className="w-full px-4 py-2 bg-background border border-input rounded-lg focus:ring-1 focus:ring-primary outline-none"
                             placeholder="Ex: Rio de Janeiro"
+                            aria-label="Cidade Padrão"
                         />
                     </div>
                 </div>
@@ -220,6 +218,7 @@ export default function PricingManagement() {
                             <button
                                 onClick={() => handleRemoveCategory(cat)}
                                 className="text-red-500 hover:text-red-600"
+                                aria-label={`Remover categoria ${cat}`}
                             >
                                 <X className="w-4 h-4" />
                             </button>
@@ -231,6 +230,7 @@ export default function PricingManagement() {
                         type="text"
                         placeholder="Nova categoria"
                         className="flex-1 px-4 py-2 bg-background border border-input rounded-lg focus:ring-1 focus:ring-primary outline-none"
+                        aria-label="Nova categoria"
                         onKeyPress={(e) => {
                             if (e.key === 'Enter') {
                                 handleAddCategory(e.currentTarget.value);
@@ -247,6 +247,7 @@ export default function PricingManagement() {
                             }
                         }}
                         className="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90"
+                        aria-label="Adicionar categoria"
                     >
                         <Plus className="w-4 h-4" />
                     </button>
@@ -280,6 +281,7 @@ export default function PricingManagement() {
                                             value={plan.boostsPerDay}
                                             onChange={(e) => handleUpdatePlan(plan.id, { boostsPerDay: parseInt(e.target.value) || 0 })}
                                             className="w-full px-2 py-1 bg-background border border-input rounded text-sm"
+                                            aria-label="Subidas por dia"
                                         />
                                     </div>
                                     <div>
@@ -289,6 +291,7 @@ export default function PricingManagement() {
                                             value={plan.duration}
                                             onChange={(e) => handleUpdatePlan(plan.id, { duration: parseInt(e.target.value) || 0 })}
                                             className="w-full px-2 py-1 bg-background border border-input rounded text-sm"
+                                            aria-label="Duração em dias"
                                         />
                                     </div>
                                     <div>
@@ -303,6 +306,7 @@ export default function PricingManagement() {
                                                 handleUpdatePlan(plan.id, { totalPrice: total, pricePerDay: perDay });
                                             }}
                                             className="w-full px-2 py-1 bg-background border border-input rounded text-sm"
+                                            aria-label="Preço total"
                                         />
                                     </div>
                                     <div>
@@ -313,6 +317,7 @@ export default function PricingManagement() {
                                             value={plan.pricePerDay.toFixed(2)}
                                             readOnly
                                             className="w-full px-2 py-1 bg-muted border border-input rounded text-sm"
+                                            aria-label="Preço por dia"
                                         />
                                     </div>
                                     <div className="flex items-end gap-2">
@@ -347,6 +352,7 @@ export default function PricingManagement() {
                                         <button
                                             onClick={() => handleDeletePlan(plan.id)}
                                             className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 text-sm"
+                                            aria-label="Excluir plano"
                                         >
                                             <Trash2 className="w-4 h-4" />
                                         </button>
@@ -413,6 +419,7 @@ export default function PricingManagement() {
                                                     value={feature.title}
                                                     onChange={(e) => handleUpdateFeature(feature.id, { title: e.target.value })}
                                                     className="w-full px-4 py-2 bg-background border border-input rounded-lg"
+                                                    aria-label="Título da feature"
                                                 />
                                             </div>
                                             <div>
@@ -423,6 +430,7 @@ export default function PricingManagement() {
                                                     onChange={(e) => handleUpdateFeature(feature.id, { price: e.target.value })}
                                                     className="w-full px-4 py-2 bg-background border border-input rounded-lg"
                                                     placeholder="Ex: R$ 5 por dia ou 50%"
+                                                    aria-label="Preço da feature"
                                                 />
                                             </div>
                                         </div>
@@ -432,14 +440,16 @@ export default function PricingManagement() {
                                                 value={feature.description}
                                                 onChange={(e) => handleUpdateFeature(feature.id, { description: e.target.value })}
                                                 className="w-full px-4 py-2 bg-background border border-input rounded-lg min-h-[80px]"
+                                                aria-label="Descrição da feature"
                                             />
                                         </div>
                                         <div>
                                             <label className="block text-sm font-medium mb-2">Ícone</label>
                                             <select
                                                 value={feature.icon}
-                                                onChange={(e) => handleUpdateFeature(feature.id, { icon: e.target.value as any })}
+                                                onChange={(e) => handleUpdateFeature(feature.id, { icon: e.target.value as 'multimedia' | 'featured' | 'stories' })}
                                                 className="w-full px-4 py-2 bg-background border border-input rounded-lg"
+                                                aria-label="Ícone da feature"
                                             >
                                                 {ICON_OPTIONS.map(opt => (
                                                     <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -456,10 +466,12 @@ export default function PricingManagement() {
                                                             value={bullet}
                                                             onChange={(e) => updateBullet(feature.id, idx, e.target.value)}
                                                             className="flex-1 px-4 py-2 bg-background border border-input rounded-lg"
+                                                            aria-label={`Item ${idx + 1}`}
                                                         />
                                                         <button
                                                             onClick={() => removeBullet(feature.id, idx)}
                                                             className="px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600"
+                                                            aria-label="Remover item"
                                                         >
                                                             <X className="w-4 h-4" />
                                                         </button>
@@ -495,6 +507,7 @@ export default function PricingManagement() {
                                             <button
                                                 onClick={() => handleDeleteFeature(feature.id)}
                                                 className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600"
+                                                aria-label="Excluir feature"
                                             >
                                                 <Trash2 className="w-4 h-4" />
                                             </button>
@@ -525,6 +538,7 @@ export default function PricingManagement() {
                                                 <button
                                                     onClick={() => setEditingFeature(feature.id)}
                                                     className="p-2 hover:bg-muted rounded-lg"
+                                                    aria-label={`Editar feature ${feature.title}`}
                                                 >
                                                     <Edit className="w-4 h-4" />
                                                 </button>

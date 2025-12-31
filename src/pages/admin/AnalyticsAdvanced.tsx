@@ -1,8 +1,6 @@
 import { useState, useEffect } from 'react';
-import { TrendingUp, Users, Eye, MousePointerClick, Calendar, Download, Filter, BarChart3, PieChart, LineChart } from 'lucide-react';
+import { TrendingUp, Users, Eye, MousePointerClick, Download, PieChart, Loader2 } from 'lucide-react';
 import { LineChart as RechartsLineChart, Line, BarChart as RechartsBarChart, Bar, PieChart as RechartsPieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { cn } from '@/lib/utils';
-import { supabase } from '@/lib/supabase';
 
 const COLORS = ['#8884d8', '#82ca9d', '#ffc658', '#ff7300', '#00ff00'];
 
@@ -114,6 +112,14 @@ export default function AnalyticsAdvanced() {
         a.click();
     };
 
+    if (loading) {
+        return (
+            <div className="flex items-center justify-center p-12">
+                <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            </div>
+        );
+    }
+
     return (
         <div className="space-y-6">
             <div className="flex items-center justify-between">
@@ -128,6 +134,7 @@ export default function AnalyticsAdvanced() {
                         value={timeRange}
                         onChange={(e) => setTimeRange(e.target.value as any)}
                         className="px-4 py-2 bg-background border border-input rounded-lg focus:ring-2 focus:ring-primary outline-none"
+                        aria-label="Período"
                     >
                         <option value="week">Última semana</option>
                         <option value="month">Último mês</option>
@@ -213,12 +220,12 @@ export default function AnalyticsAdvanced() {
                                 cx="50%"
                                 cy="50%"
                                 labelLine={false}
-                                label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                                label={({ name, percent }: any) => `${name}: ${(percent * 100).toFixed(0)}%`}
                                 outerRadius={80}
                                 fill="#8884d8"
                                 dataKey="value"
                             >
-                                {stats.categoryDistribution.map((entry, index) => (
+                                {stats.categoryDistribution.map((_entry, index) => (
                                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                                 ))}
                             </Pie>

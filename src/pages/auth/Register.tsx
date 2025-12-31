@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { supabase } from '@/lib/supabase';
+import { pb } from '@/lib/pocketbase';
 import { cn, generateUniqueAdId } from '@/lib/utils';
 import { motion } from 'framer-motion';
-import { 
-    shouldUseMockAuth, 
-    createMockUser, 
-    createMockSession, 
-    setMockSession 
+import {
+    shouldUseMockAuth,
+    createMockUser,
+    createMockSession,
+    setMockSession
 } from '@/lib/mock-auth';
 import { isValidEmail, isStrongPassword, isValidPhone } from '@/lib/utils/validation';
 
@@ -21,7 +21,7 @@ export default function Register() {
     const [error, setError] = useState<string | null>(null);
     const navigate = useNavigate();
     const useMock = shouldUseMockAuth();
-    
+
     // Cadastro é apenas para anunciantes
     const role: 'advertiser' = 'advertiser';
 
@@ -64,7 +64,7 @@ export default function Register() {
                 const mockUser = createMockUser(email, password, displayName, phone);
                 const mockSession = createMockSession(mockUser);
                 setMockSession(mockSession);
-                
+
                 // Also create profile in localStorage for consistency
                 const profileKey = `mock_profile_${mockUser.id}`;
                 const adId = generateUniqueAdId();
@@ -75,42 +75,47 @@ export default function Register() {
                     role: role,
                     phone: phone || null,
                 }));
-                
+
                 // Trigger storage event to update AuthContext
                 window.dispatchEvent(new StorageEvent('storage', { key: 'mock_session' }));
-                
+
                 // Reload page to update auth state
                 window.location.href = '/';
             } else {
-                // Use real Supabase registration
-                // 1. Sign up
-                const { data: authData, error: authError } = await supabase.auth.signUp({
+                // Use real PocketBase registration
+                // 1. Create User
+                const user = await pb.collection('users').create({
                     email,
                     password,
+                    passwordConfirm: password,
+                    name: displayName,
+                    role: role, // Ensure 'role' field exists in 'users' collection
                 });
 
-                if (authError) throw authError;
+                // 2. Generate unique advertisement ID
+                const adId = generateUniqueAdId();
 
-                if (authData.user) {
-                    // 2. Generate unique advertisement ID
-                    const adId = generateUniqueAdId();
-                    
-                    // 3. Create Profile with unique ad ID
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    const { error: profileError } = await supabase
-                        .from('profiles')
-                        .insert({
-                            id: authData.user.id,
-                            ad_id: adId, // Unique advertisement ID
-                            display_name: displayName,
-                            role: role,
-                            phone: phone || null,
-                        } as any);
-
-                    if (profileError) {
-                        console.error("Profile creation failed", profileError);
-                    }
+                // 3. Create Profile with the same ID as User (if allowed) or linked
+                // We attempt to set ID = user.id so getOne(userId) works.
+                // If not allowed, we might need to rely on a 'user' field relation.
+                try {
+                    await pb.collection('profiles').create({
+                        id: user.id,
+                        user: user.id, // Relation to user (if schema has it)
+                        ad_id: adId,
+                        display_name: displayName,
+                        role: role,
+                        phone: phone || null,
+                        email: email, // redundant but useful
+                    });
+                } catch (profileErr) {
+                    console.error("Profile creation failed, checking if it was auto-created", profileErr);
+                    // In some PB setups, a hook might create the profile. 
+                    // Or if setting ID is forbidden, we should just correct our data access patterns later.
                 }
+
+                // 4. Authenticate to establish session
+                await pb.collection('users').authWithPassword(email, password);
 
                 navigate('/');
             }

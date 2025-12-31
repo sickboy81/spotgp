@@ -1,12 +1,28 @@
 import { useState, useEffect } from 'react';
-import { Search, Eye, EyeOff, Edit, Trash2, Image as ImageIcon, Video, Filter, Loader2 } from 'lucide-react';
+import { Search, Eye, EyeOff, Trash2, Image as ImageIcon, Video, Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { supabase } from '@/lib/supabase';
+import { pb } from '@/lib/pocketbase';
 import { cn } from '@/lib/utils';
+import { RecordModel } from 'pocketbase';
+
+interface MediaItem {
+    type: 'image' | 'video';
+    url: string;
+}
+
+interface Profile extends RecordModel {
+    display_name?: string;
+    city?: string;
+    ad_id?: string;
+    role?: string;
+    is_banned?: boolean;
+    media?: MediaItem[];
+    // Include other fields as needed
+}
 
 export default function ContentManagement() {
     const [loading, setLoading] = useState(true);
-    const [profiles, setProfiles] = useState<any[]>([]);
+    const [profiles, setProfiles] = useState<Profile[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [filterStatus, setFilterStatus] = useState<'all' | 'visible' | 'hidden'>('all');
 
@@ -17,17 +33,41 @@ export default function ContentManagement() {
     const loadProfiles = async () => {
         setLoading(true);
         try {
-            const { data, error } = await supabase
-                .from('profiles')
-                .select(`
-                    *,
-                    media(type, url)
-                `)
-                .eq('role', 'advertiser')
-                .order('created_at', { ascending: false });
+            const records = await pb.collection('profiles').getFullList<Profile>({
+                sort: '-created',
+                filter: 'role = "advertiser"',
+                expand: 'media_via_profile_id', // Assuming reverse relation exists
+            });
 
-            if (error) throw error;
-            setProfiles(data || []);
+            // Map and normalize data if needed. 
+            // For now assuming the structure from previous code which seemed to rely on a 'media' property 
+            // potentially populated by a manual fetch or hook in other components.
+            // Since we are not using the hook here, we might not get media if it's not in the record.
+            // Let's assume for now we might need to fetch media or rely on expand.
+            // If strictly following Home.tsx optimization, we should fetch media.
+            // But let's verify if `media` field exists on profile (it doesn't in standard PB relation usually).
+            // It's likely we need to fetch media separatedly.
+
+            // To be safe and clean, let's fetch media for these profiles.
+            const profilesWithMedia = await Promise.all(records.map(async (profile) => {
+                try {
+                    const mediaRecords = await pb.collection('media').getFullList({
+                        filter: `profile_id="${profile.id}"`,
+                        sort: '-created'
+                    });
+
+                    const mediaItems: MediaItem[] = mediaRecords.map(m => ({
+                        type: m.type as 'image' | 'video', // Adjust as per your media collection schema
+                        url: pb.files.getUrl(m, m.file)
+                    }));
+
+                    return { ...profile, media: mediaItems };
+                } catch {
+                    return profile;
+                }
+            }));
+
+            setProfiles(profilesWithMedia);
         } catch (error) {
             console.error('Error loading profiles:', error);
         } finally {
@@ -35,55 +75,54 @@ export default function ContentManagement() {
         }
     };
 
-    const handleToggleVisibility = async (profileId: string, currentHidden: boolean) => {
+    const handleToggleVisibility = async (profileId: string, currentHidden: boolean | undefined) => {
         try {
-            // Assuming we have a 'hidden' field, if not, we can use is_banned or create a new field
-            const { error } = await supabase
-                .from('profiles')
-                .update({ is_banned: !currentHidden } as any) // Using is_banned as a proxy for hidden
-                .eq('id', profileId);
+            // Assuming 'is_banned' is used for visibility hiding as per previous code context
+            await pb.collection('profiles').update(profileId, {
+                is_banned: !currentHidden
+            });
 
-            if (error) throw error;
             await loadProfiles();
-        } catch (error: any) {
+        } catch (error) {
             console.error('Error toggling visibility:', error);
             alert('Erro ao alterar visibilidade do perfil');
         }
     };
 
     const handleDeleteContent = async (profileId: string) => {
+        // eslint-disable-next-line no-restricted-globals
         if (!confirm('Tem certeza que deseja deletar este conteúdo? Esta ação não pode ser desfeita!')) return;
 
         try {
             // First delete media
-            const { error: mediaError } = await supabase
-                .from('media')
-                .delete()
-                .eq('profile_id', profileId);
-
-            if (mediaError) console.warn('Error deleting media:', mediaError);
+            try {
+                const mediaItems = await pb.collection('media').getFullList({
+                    filter: `profile_id="${profileId}"`
+                });
+                for (const item of mediaItems) {
+                    await pb.collection('media').delete(item.id);
+                }
+            } catch (e) {
+                console.warn("Error deleting media", e);
+            }
 
             // Then delete profile
-            const { error: profileError } = await supabase
-                .from('profiles')
-                .delete()
-                .eq('id', profileId);
+            await pb.collection('profiles').delete(profileId);
 
-            if (profileError) throw profileError;
             await loadProfiles();
             alert('Conteúdo deletado com sucesso.');
-        } catch (error: any) {
+        } catch (error) {
             console.error('Error deleting content:', error);
             alert('Erro ao deletar conteúdo');
         }
     };
 
     const filteredProfiles = profiles.filter(profile => {
-        const matchesSearch = profile.display_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                             profile.city?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                             profile.ad_id?.toLowerCase().includes(searchTerm.toLowerCase());
-        
-        const matchesStatus = 
+        const matchesSearch = (profile.display_name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+            (profile.city?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+            (profile.ad_id?.toLowerCase() || '').includes(searchTerm.toLowerCase());
+
+        const matchesStatus =
             filterStatus === 'all' ||
             (filterStatus === 'visible' && !profile.is_banned) ||
             (filterStatus === 'hidden' && profile.is_banned);
@@ -108,12 +147,14 @@ export default function ContentManagement() {
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                         className="w-full pl-10 pr-4 py-2 bg-background border border-input rounded-md text-sm focus:ring-1 focus:ring-primary outline-none"
+                        aria-label="Buscar anúncios"
                     />
                 </div>
                 <select
                     value={filterStatus}
-                    onChange={(e) => setFilterStatus(e.target.value as any)}
+                    onChange={(e) => setFilterStatus(e.target.value as 'all' | 'visible' | 'hidden')}
                     className="bg-background border border-input rounded-md px-4 py-2 text-sm focus:ring-1 focus:ring-primary outline-none"
+                    aria-label="Filtrar visibilidade"
                 >
                     <option value="all">Todos</option>
                     <option value="visible">Visíveis</option>
@@ -133,11 +174,11 @@ export default function ContentManagement() {
             ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {filteredProfiles.map((profile) => {
-                        const mainImage = profile.media?.find((m: any) => m.type === 'image')?.url || 
-                                         'https://via.placeholder.com/400x600';
-                        const hasVideo = profile.media?.some((m: any) => m.type === 'video');
-                        const imageCount = profile.media?.filter((m: any) => m.type === 'image').length || 0;
-                        const videoCount = profile.media?.filter((m: any) => m.type === 'video').length || 0;
+                        const mainImage = profile.media?.find((m) => m.type === 'image')?.url ||
+                            'https://via.placeholder.com/400x600';
+                        const hasVideo = profile.media?.some((m) => m.type === 'video');
+                        const imageCount = profile.media?.filter((m) => m.type === 'image').length || 0;
+                        const videoCount = profile.media?.filter((m) => m.type === 'video').length || 0;
 
                         return (
                             <div key={profile.id} className="bg-card border border-border rounded-xl overflow-hidden">
@@ -185,6 +226,7 @@ export default function ContentManagement() {
                                             to={`/profile/${profile.id}`}
                                             target="_blank"
                                             className="flex-1 px-3 py-2 bg-primary/10 text-primary rounded-md text-sm font-medium hover:bg-primary/20 transition-colors flex items-center justify-center gap-2"
+                                            aria-label={`Ver perfil de ${profile.display_name}`}
                                         >
                                             <Eye className="w-4 h-4" />
                                             Ver
@@ -197,6 +239,8 @@ export default function ContentManagement() {
                                                     ? "bg-green-500/10 text-green-600 hover:bg-green-500/20"
                                                     : "bg-orange-500/10 text-orange-600 hover:bg-orange-500/20"
                                             )}
+                                            aria-label={profile.is_banned ? "Exibir perfil" : "Ocultar perfil"}
+                                            title={profile.is_banned ? "Exibir perfil" : "Ocultar perfil"}
                                         >
                                             {profile.is_banned ? (
                                                 <>
@@ -213,6 +257,8 @@ export default function ContentManagement() {
                                         <button
                                             onClick={() => handleDeleteContent(profile.id)}
                                             className="px-3 py-2 bg-destructive/10 text-destructive rounded-md text-sm font-medium hover:bg-destructive/20 transition-colors"
+                                            aria-label="Deletar perfil"
+                                            title="Deletar perfil"
                                         >
                                             <Trash2 className="w-4 h-4" />
                                         </button>
@@ -226,5 +272,3 @@ export default function ContentManagement() {
         </div>
     );
 }
-
-

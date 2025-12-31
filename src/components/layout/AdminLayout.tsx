@@ -1,6 +1,6 @@
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useEffect } from 'react';
-import { Users, ShieldAlert, LogOut, BarChart, ShieldCheck, FileText, Settings, Activity, Sparkles, DollarSign, Tag, LineChart, Mail, Database, MapPin, Shield, Image as ImageIcon, Monitor, Ban, MessageSquare, CreditCard, Ticket, TrendingUp } from 'lucide-react';
+import { Users, ShieldAlert, LogOut, BarChart, ShieldCheck, FileText, Settings, Activity, Sparkles, DollarSign, Tag, LineChart, Mail, Database, MapPin, Shield, Image as ImageIcon, Monitor, Ban, MessageSquare, CreditCard, Ticket } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import { Logo } from '@/components/ui/Logo';
@@ -29,8 +29,8 @@ export default function AdminLayout() {
         { icon: LineChart, label: 'Análises', href: '/admin/analytics' },
         { icon: Mail, label: 'Emails', href: '/admin/emails' },
         { icon: MessageSquare, label: 'Chat', href: '/admin/chat' },
-            { icon: CreditCard, label: 'Planos', href: '/admin/plans' },
-            { icon: Ticket, label: 'Cupons', href: '/admin/coupons' },
+        { icon: CreditCard, label: 'Planos', href: '/admin/plans' },
+        { icon: Ticket, label: 'Cupons', href: '/admin/coupons' },
         { icon: Database, label: 'Backup', href: '/admin/backup' },
         { icon: MapPin, label: 'Localizações', href: '/admin/locations' },
         { icon: Shield, label: 'Permissões', href: '/admin/permissions' },

@@ -1,5 +1,4 @@
 import { Plus, Minus } from 'lucide-react';
-import { cn } from '@/lib/utils';
 
 interface PriceRow {
     description: string;
@@ -74,6 +73,7 @@ export function PriceTable({ prices, onPricesChange }: PriceTableProps) {
                                         onClick={() => handleRemoveRow(index)}
                                         className="p-1 text-destructive hover:bg-destructive/10 rounded transition-colors"
                                         type="button"
+                                        aria-label="Remover linha"
                                     >
                                         <Minus className="w-4 h-4" />
                                     </button>

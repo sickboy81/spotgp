@@ -1,12 +1,11 @@
 import { useState, useEffect } from 'react';
-import { CheckCircle, XCircle, Clock, Eye, Search, Filter } from 'lucide-react';
+import { CheckCircle, XCircle, Eye, Search, Filter } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
-import { 
-    getPendingVerifications, 
-    approveVerification, 
+import {
+    getPendingVerifications,
+    approveVerification,
     rejectVerification,
-    getVerificationDocuments,
-    VerificationDocument 
+    VerificationDocument
 } from '@/lib/api/verification';
 import { cn } from '@/lib/utils';
 
@@ -43,7 +42,7 @@ export default function VerificationReview() {
 
     const handleApprove = async (profileId: string) => {
         if (!user?.id) return;
-        
+
         setProcessing(profileId);
         try {
             const result = await approveVerification(profileId, user.id);
@@ -55,8 +54,8 @@ export default function VerificationReview() {
             } else {
                 alert(result.error || 'Erro ao aprovar verificação');
             }
-        } catch (err: any) {
-            alert(err.message || 'Erro ao processar aprovação');
+        } catch (err: unknown) {
+            alert((err as Error).message || 'Erro ao processar aprovação');
         } finally {
             setProcessing(null);
         }
@@ -81,8 +80,8 @@ export default function VerificationReview() {
             } else {
                 alert(result.error || 'Erro ao rejeitar verificação');
             }
-        } catch (err: any) {
-            alert(err.message || 'Erro ao processar rejeição');
+        } catch (err: unknown) {
+            alert((err as Error).message || 'Erro ao processar rejeição');
         } finally {
             setProcessing(null);
         }
@@ -135,6 +134,7 @@ export default function VerificationReview() {
                             value={filterStatus}
                             onChange={(e) => setFilterStatus(e.target.value as FilterStatus)}
                             className="px-4 py-2 bg-background border border-input rounded-lg focus:ring-1 focus:ring-primary outline-none"
+                            aria-label="Filtrar por status"
                         >
                             <option value="all">Todos</option>
                             <option value="pending">Pendentes</option>

@@ -1,9 +1,8 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { ChevronDown, ChevronUp, Filter, Sparkles, User, Wallet, Check, CheckCircle, Users, Home } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ALL_SERVICES } from '@/lib/constants/services';
-import { BRAZILIAN_CITIES } from '@/lib/constants/brazilian-cities';
-import { NEIGHBORHOODS_BY_CITY } from '@/lib/constants/neighborhoods';
+
 import { SERVICE_TO } from '@/lib/constants/massage-options';
 import { SERVICE_LOCATIONS } from '@/lib/constants/profile-options';
 
@@ -60,23 +59,7 @@ const INITIAL_FILTERS: FilterState = {
 };
 
 // Generate locations from BRAZILIAN_CITIES for complete coverage
-const getLocationsByState = () => {
-    const locations: Record<string, string[]> = {};
-    Object.entries(BRAZILIAN_CITIES).forEach(([city, data]) => {
-        const state = data.state;
-        if (!locations[state]) {
-            locations[state] = [];
-        }
-        locations[state].push(city);
-    });
-    // Sort cities within each state
-    Object.keys(locations).forEach(state => {
-        locations[state].sort();
-    });
-    return locations;
-};
 
-const LOCATIONS = getLocationsByState();
 
 const HAIR_COLORS = ['Loira', 'Morena', 'Ruiva', 'Preto', 'Colorido'];
 const BODY_TYPES = ['Magro', 'Mignon', 'Fitness', 'Curvilínea', 'Plus Size'];
@@ -215,10 +198,10 @@ export function FilterSidebar({ className, onFilterChange, activeFilters, onClos
                                                 const value = e.target.value;
                                                 const numValue = value === '' ? '' : Number(value);
                                                 if (numValue === '' || (typeof numValue === 'number' && numValue >= 0)) {
-                                                    handleFilterUpdate({ 
+                                                    handleFilterUpdate({
                                                         priceMin: numValue,
-                                                        priceMax: (typeof numValue === 'number' && localFilters.priceMax !== '' && numValue > localFilters.priceMax) 
-                                                            ? '' 
+                                                        priceMax: (typeof numValue === 'number' && localFilters.priceMax !== '' && numValue > localFilters.priceMax)
+                                                            ? ''
                                                             : localFilters.priceMax
                                                     });
                                                 }
@@ -238,10 +221,10 @@ export function FilterSidebar({ className, onFilterChange, activeFilters, onClos
                                                 const value = e.target.value;
                                                 const numValue = value === '' ? '' : Number(value);
                                                 if (numValue === '' || (typeof numValue === 'number' && numValue >= 0)) {
-                                                    handleFilterUpdate({ 
+                                                    handleFilterUpdate({
                                                         priceMax: numValue,
-                                                        priceMin: (typeof numValue === 'number' && localFilters.priceMin !== '' && numValue < localFilters.priceMin) 
-                                                            ? '' 
+                                                        priceMin: (typeof numValue === 'number' && localFilters.priceMin !== '' && numValue < localFilters.priceMin)
+                                                            ? ''
                                                             : localFilters.priceMin
                                                     });
                                                 }

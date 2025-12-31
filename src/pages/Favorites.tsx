@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { MOCK_PROFILES } from '@/lib/mock-data';
 import { MapPin, Heart } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import { pb } from '@/lib/pocketbase';
 import { LazyImage } from '@/components/features/media/LazyImage';
 import { getCurrentOnlineStatus, ProfileData } from '@/lib/api/profile';
 
@@ -13,7 +13,7 @@ export default function Favorites() {
 
     useEffect(() => {
         // Load favorites from local storage
-        const saved = localStorage.getItem('saphira_favorites');
+        const saved = localStorage.getItem('spotgp_favorites');
         const favIds = saved ? JSON.parse(saved) : [];
         setFavorites(favIds);
 
@@ -27,28 +27,60 @@ export default function Favorites() {
 
     async function fetchFavoriteProfiles(ids: string[]) {
         try {
-            // 1. Try fetching from Supabase
-            const { data, error } = await supabase
-                .from('profiles')
-                .select(`*, media(type, url)`)
-                .in('id', ids);
-
-            if (!error && data && data.length > 0) {
-                // Merge with any mock profiles if some IDs are mocks
-                const mockIds = ids.filter(id => id.startsWith('mock-'));
-                const mockProfiles = MOCK_PROFILES.filter(p => mockIds.includes(p.id));
-
-                // Combine and remove duplicates
-                const combined = [...data, ...mockProfiles];
-                // Deduplicate by ID just in case
-                const uniqueProfiles = Array.from(new Map(combined.map(item => [item.id, item])).values());
-
-                setProfiles(uniqueProfiles);
-            } else {
-                // Fallback to mocks entirely if Supabase fails or returns nothing (and we have mock IDs)
-                const mockProfiles = MOCK_PROFILES.filter(p => ids.includes(p.id));
-                setProfiles(mockProfiles);
+            // 1. Try fetching from PocketBase
+            if (!ids || ids.length === 0) {
+                setProfiles([]);
+                setIsLoading(false);
+                return;
             }
+
+            // Exclude mock IDs from PB query
+            const realIds = ids.filter(id => !id.startsWith('mock-'));
+            let data: any[] = [];
+
+            if (realIds.length > 0) {
+                const filter = realIds.map(id => `id = "${id}"`).join(' || ');
+                const list = await pb.collection('profiles').getFullList({
+                    filter,
+                });
+                data = list;
+
+                // Fetch media for these profiles
+                const mediaFilter = realIds.map(id => `profile_id = "${id}"`).join(' || ');
+                let mediaMap: Record<string, any[]> = {};
+
+                try {
+                    const mediaList = await pb.collection('media').getFullList({
+                        filter: mediaFilter,
+                    });
+                    mediaList.forEach(m => {
+                        if (!mediaMap[m.profile_id]) mediaMap[m.profile_id] = [];
+                        mediaMap[m.profile_id].push({
+                            type: m.type || 'image',
+                            url: m.url || pb.files.getUrl(m, m.file || 'file')
+                        });
+                    });
+                } catch (e) {
+                    // ignore
+                }
+
+                // Attach media
+                data = data.map(p => ({
+                    ...p,
+                    media: mediaMap[p.id] || []
+                }));
+            }
+
+            // Merge with mock profiles
+            const mockIds = ids.filter(id => id.startsWith('mock-'));
+            const mockProfiles = MOCK_PROFILES.filter(p => mockIds.includes(p.id));
+
+            // Combine
+            const combined = [...data, ...mockProfiles];
+            // Deduplicate
+            const uniqueProfiles = Array.from(new Map(combined.map(item => [item.id, item])).values());
+
+            setProfiles(uniqueProfiles);
 
         } catch (err) {
             console.error("Error fetching favorites", err);
@@ -66,7 +98,7 @@ export default function Favorites() {
 
         const newFavs = favorites.filter(fid => fid !== id);
         setFavorites(newFavs);
-        localStorage.setItem('saphira_favorites', JSON.stringify(newFavs));
+        localStorage.setItem('spotgp_favorites', JSON.stringify(newFavs));
 
         // Remove from current view
         setProfiles(prev => prev.filter(p => p.id !== id));
@@ -102,7 +134,7 @@ export default function Favorites() {
             ) : (
                 <div className="grid grid-cols-2 md:grid-cols-5 lg:grid-cols-7 gap-2.5">
                     {profiles.map((profile) => {
-                        const mainImage = profile.media?.find((m: any) => m.type === 'image')?.url || 'https://via.placeholder.com/400x600?text=Saphira';
+                        const mainImage = profile.media?.find((m: any) => m.type === 'image')?.url || 'https://via.placeholder.com/400x600?text=SpotGP';
 
                         return (
                             <Link to={`/profile/${profile.id}`} key={profile.id} className="group relative block aspect-[3/4] overflow-hidden rounded-lg bg-card shadow-lg ring-1 ring-white/10 hover:ring-primary/50 transition-all duration-500 hover:shadow-xl hover:-translate-y-1">

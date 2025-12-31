@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { Volume2, Upload, Mic, X } from 'lucide-react';
+import { Upload, Mic, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface AudioUploaderProps {
@@ -79,6 +79,7 @@ export function AudioUploader({ audioUrl, onAudioChange }: AudioUploaderProps) {
                         onClick={handleRemove}
                         className="absolute top-2 right-2 p-1 text-destructive hover:bg-destructive/10 rounded transition-colors"
                         type="button"
+                        aria-label="Remover áudio"
                     >
                         <X className="w-4 h-4" />
                     </button>
@@ -115,6 +116,7 @@ export function AudioUploader({ audioUrl, onAudioChange }: AudioUploaderProps) {
                     accept="audio/*"
                     onChange={handleFileSelect}
                     className="hidden"
+                    aria-label="Upload de áudio"
                 />
             </div>
 

@@ -1,13 +1,26 @@
 // API functions for messaging system
-// Prepared for database integration - currently using localStorage simulation with Supabase integration ready
+import { pb } from '@/lib/pocketbase';
+// import { shouldUseMockAuth } from '../mock-auth';
 
-import { supabase } from '../supabase';
-import { Database } from '../../types/supabase';
+// Types
+export interface Conversation {
+    id: string;
+    participant1_id: string;
+    participant2_id: string;
+    last_message_at: string | null;
+    created: string;
+    updated: string;
+}
 
-type Conversation = Database['public']['Tables']['conversations']['Row'];
-type ConversationInsert = Database['public']['Tables']['conversations']['Insert'];
-type Message = Database['public']['Tables']['messages']['Row'];
-type MessageInsert = Database['public']['Tables']['messages']['Insert'];
+export interface Message {
+    id: string;
+    conversation_id: string;
+    sender_id: string;
+    content: string;
+    is_read: boolean;
+    created: string;
+    updated: string;
+}
 
 export interface ConversationWithParticipant extends Conversation {
     other_participant?: {
@@ -28,7 +41,6 @@ export interface MessageWithSender extends Message {
 
 /**
  * Get or create a conversation between two users
- * Checks if chat is enabled for the advertiser before creating
  */
 export async function getOrCreateConversation(
     userId1: string,
@@ -36,54 +48,36 @@ export async function getOrCreateConversation(
 ): Promise<Conversation> {
     try {
         // Check if chat is enabled for the advertiser (userId2 is typically the advertiser)
-        const { data: advertiserProfile, error: profileError } = await supabase
-            .from('profiles')
-            .select('chat_enabled, role')
-            .eq('id', userId2)
-            .single();
-
-        // If advertiser has chat disabled, throw error
-        if (!profileError && advertiserProfile && advertiserProfile.role === 'advertiser') {
-            if (advertiserProfile.chat_enabled === false) {
+        try {
+            const advertiserProfile = await pb.collection('profiles').getOne(userId2);
+            if (advertiserProfile.role === 'advertiser' && advertiserProfile.chat_enabled === false) {
                 throw new Error('Chat interno está desabilitado para este perfil');
             }
-        }
+        } catch (e) { /* ignore if profile fetch fails */ }
 
         // Try to find existing conversation
-        const { data: existing, error: findError } = await supabase
-            .from('conversations')
-            .select('*')
-            .or(`and(participant1_id.eq.${userId1},participant2_id.eq.${userId2}),and(participant1_id.eq.${userId2},participant2_id.eq.${userId1})`)
-            .single();
+        // Filter: (p1=u1 AND p2=u2) OR (p1=u2 AND p2=u1)
+        const filter = `(participant1_id = "${userId1}" && participant2_id = "${userId2}") || (participant1_id = "${userId2}" && participant2_id = "${userId1}")`;
 
-        if (existing && !findError) {
-            return existing;
+        const existingList = await pb.collection('conversations').getList<Conversation>(1, 1, { filter });
+
+        if (existingList.items.length > 0) {
+            return existingList.items[0];
         }
 
         // Create new conversation
-        const newConversation: ConversationInsert = {
+        const newConversation = await pb.collection('conversations').create<Conversation>({
             participant1_id: userId1,
             participant2_id: userId2,
-        };
+            last_message_at: null,
+        });
 
-        const { data, error } = await supabase
-            .from('conversations')
-            .insert(newConversation)
-            .select()
-            .single();
-
-        if (error) throw error;
-
-        // Save to localStorage as backup
-        saveConversationToLocalStorage(data);
-
-        return data;
+        return newConversation;
     } catch (err: any) {
-        // If it's our custom error about disabled chat, rethrow it
         if (err.message?.includes('desabilitado')) {
             throw err;
         }
-        console.warn('Error getting/creating conversation in Supabase, using localStorage:', err);
+        console.warn('Error getting/creating conversation in PocketBase, using localStorage:', err);
         return getOrCreateConversationFromLocalStorage(userId1, userId2);
     }
 }
@@ -93,15 +87,12 @@ export async function getOrCreateConversation(
  */
 export async function getAllConversations(): Promise<Conversation[]> {
     try {
-        const { data, error } = await supabase
-            .from('conversations')
-            .select('*')
-            .order('last_message_at', { ascending: false, nullsFirst: false });
-
-        if (error) throw error;
-        return data || [];
+        const list = await pb.collection('conversations').getFullList<Conversation>({
+            sort: '-last_message_at',
+        });
+        return list;
     } catch (err: any) {
-        console.warn('Error fetching all conversations from Supabase, using localStorage:', err);
+        console.warn('Error fetching all conversations from PocketBase, using localStorage:', err);
         return getConversationsFromLocalStorageArray();
     }
 }
@@ -111,43 +102,40 @@ export async function getAllConversations(): Promise<Conversation[]> {
  */
 export async function getUserConversations(userId: string): Promise<ConversationWithParticipant[]> {
     try {
-        const { data, error } = await supabase
-            .from('conversations')
-            .select('*')
-            .or(`participant1_id.eq.${userId},participant2_id.eq.${userId}`)
-            .order('last_message_at', { ascending: false, nullsFirst: false });
+        const filter = `participant1_id = "${userId}" || participant2_id = "${userId}"`;
+        const list = await pb.collection('conversations').getFullList<Conversation>({
+            filter,
+            sort: '-last_message_at',
+        });
 
-        if (error) throw error;
+        // Fetch details
+        const conversationsWithDetails = await Promise.all(
+            list.map(async (conv) => {
+                const otherUserId = conv.participant1_id === userId
+                    ? conv.participant2_id
+                    : conv.participant1_id;
 
-        if (data && data.length > 0) {
-            // Fetch participant info and last message for each conversation
-            const conversationsWithDetails = await Promise.all(
-                data.map(async (conv) => {
-                    const otherUserId = conv.participant1_id === userId 
-                        ? conv.participant2_id 
-                        : conv.participant1_id;
+                let otherParticipant = null;
+                try {
+                    const p = await pb.collection('profiles').getOne(otherUserId);
+                    otherParticipant = { id: p.id, display_name: p.display_name, ad_id: p.ad_id };
+                } catch (e) { /* ignore */ }
 
-                    const [otherParticipant, lastMessage, unreadCount] = await Promise.all([
-                        supabase.from('profiles').select('id, display_name, ad_id').eq('id', otherUserId).single().catch(() => ({ data: null })),
-                        getLastMessage(conv.id),
-                        getUnreadCount(conv.id, userId),
-                    ]);
+                const lastMessage = await getLastMessage(conv.id);
+                const unreadCount = await getUnreadCount(conv.id, userId);
 
-                    return {
-                        ...conv,
-                        other_participant: otherParticipant.data,
-                        last_message: lastMessage,
-                        unread_count: unreadCount,
-                    } as ConversationWithParticipant;
-                })
-            );
+                return {
+                    ...conv,
+                    other_participant: otherParticipant,
+                    last_message: lastMessage,
+                    unread_count: unreadCount,
+                } as ConversationWithParticipant;
+            })
+        );
 
-            return conversationsWithDetails;
-        }
-
-        return getConversationsFromLocalStorage(userId);
+        return conversationsWithDetails;
     } catch (err: any) {
-        console.warn('Error fetching conversations from Supabase, using localStorage:', err);
+        console.warn('Error fetching conversations from PocketBase, using localStorage:', err);
         return getConversationsFromLocalStorage(userId);
     }
 }
@@ -160,39 +148,23 @@ export async function getConversationMessages(
     limit = 50
 ): Promise<MessageWithSender[]> {
     try {
-        const { data, error } = await supabase
-            .from('messages')
-            .select('*')
-            .eq('conversation_id', conversationId)
-            .order('created_at', { ascending: false })
-            .limit(limit);
+        const list = await pb.collection('messages').getList<Message>(1, limit, {
+            filter: `conversation_id = "${conversationId}"`,
+            sort: '-created',
+            expand: 'sender_id', // Expand sender info if relation exists
+        });
 
-        if (error) throw error;
+        const messagesWithSenders = list.items.map((msg: any) => ({
+            ...msg,
+            sender: msg.expand?.sender_id ? {
+                id: msg.expand.sender_id.id,
+                display_name: msg.expand.sender_id.display_name
+            } : undefined
+        }));
 
-        if (data && data.length > 0) {
-            // Fetch sender info for each message
-            const messagesWithSenders = await Promise.all(
-                data.map(async (msg) => {
-                    const { data: sender } = await supabase
-                        .from('profiles')
-                        .select('id, display_name')
-                        .eq('id', msg.sender_id)
-                        .single()
-                        .catch(() => ({ data: null }));
-
-                    return {
-                        ...msg,
-                        sender: sender?.data,
-                    } as MessageWithSender;
-                })
-            );
-
-            return messagesWithSenders.reverse(); // Reverse to show oldest first
-        }
-
-        return getMessagesFromLocalStorage(conversationId, limit);
+        return messagesWithSenders.reverse() as MessageWithSender[];
     } catch (err: any) {
-        console.warn('Error fetching messages from Supabase, using localStorage:', err);
+        console.warn('Error fetching messages from PocketBase, using localStorage:', err);
         return getMessagesFromLocalStorage(conversationId, limit);
     }
 }
@@ -206,49 +178,34 @@ export async function sendMessage(
     content: string
 ): Promise<{ success: boolean; message?: Message; error?: string }> {
     try {
-        const messageData: MessageInsert = {
+        const messageData = {
             conversation_id: conversationId,
             sender_id: senderId,
             content: content.trim(),
             is_read: false,
         };
 
-        const { data, error } = await supabase
-            .from('messages')
-            .insert(messageData)
-            .select()
-            .single();
+        const message = await pb.collection('messages').create<Message>(messageData);
 
-        if (error) throw error;
+        // Update conversation
+        await pb.collection('conversations').update(conversationId, {
+            last_message_at: new Date().toISOString(),
+        });
 
-        // Update conversation last_message_at
-        await supabase
-            .from('conversations')
-            .update({ 
-                last_message_at: new Date().toISOString(),
-                updated_at: new Date().toISOString(),
-            })
-            .eq('id', conversationId);
-
-        // Save to localStorage
-        saveMessageToLocalStorage(data);
-
-        return { success: true, message: data };
+        saveMessageToLocalStorage(message);
+        return { success: true, message };
     } catch (err: any) {
-        console.warn('Error sending message in Supabase, using localStorage:', err);
-        
-        const messageData: MessageInsert = {
-            conversation_id: conversationId,
-            sender_id: senderId,
-            content: content.trim(),
-            is_read: false,
-        };
+        console.warn('Error sending message in PocketBase, using localStorage:', err);
 
         const newMessage: Message = {
-            ...messageData,
+            conversation_id: conversationId,
+            sender_id: senderId,
+            content: content.trim(),
+            is_read: false,
             id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-            created_at: new Date().toISOString(),
-        } as Message;
+            created: new Date().toISOString(),
+            updated: new Date().toISOString(),
+        };
 
         saveMessageToLocalStorage(newMessage);
         return { success: true, message: newMessage };
@@ -263,20 +220,19 @@ export async function markMessagesAsRead(
     userId: string
 ): Promise<{ success: boolean; error?: string }> {
     try {
-        const { error } = await supabase
-            .from('messages')
-            .update({ is_read: true })
-            .eq('conversation_id', conversationId)
-            .neq('sender_id', userId); // Don't mark own messages as read
+        // Fetch unread messages sent by others
+        const unread = await pb.collection('messages').getFullList({
+            filter: `conversation_id = "${conversationId}" && sender_id != "${userId}" && is_read = false`,
+        });
 
-        if (error) throw error;
+        await Promise.all(unread.map(m =>
+            pb.collection('messages').update(m.id, { is_read: true })
+        ));
 
-        // Update localStorage
         updateMessagesReadStatus(conversationId, userId);
-
         return { success: true };
     } catch (err: any) {
-        console.warn('Error marking messages as read in Supabase, using localStorage:', err);
+        console.warn('Error marking messages as read in PocketBase, using localStorage:', err);
         updateMessagesReadStatus(conversationId, userId);
         return { success: true };
     }
@@ -287,15 +243,10 @@ export async function markMessagesAsRead(
  */
 async function getUnreadCount(conversationId: string, userId: string): Promise<number> {
     try {
-        const { count, error } = await supabase
-            .from('messages')
-            .select('*', { count: 'exact', head: true })
-            .eq('conversation_id', conversationId)
-            .eq('is_read', false)
-            .neq('sender_id', userId);
-
-        if (error) throw error;
-        return count || 0;
+        const result = await pb.collection('messages').getList(1, 1, {
+            filter: `conversation_id = "${conversationId}" && sender_id != "${userId}" && is_read = false`,
+        });
+        return result.totalItems;
     } catch {
         return getUnreadCountFromLocalStorage(conversationId, userId);
     }
@@ -306,38 +257,32 @@ async function getUnreadCount(conversationId: string, userId: string): Promise<n
  */
 async function getLastMessage(conversationId: string): Promise<Message | null> {
     try {
-        const { data, error } = await supabase
-            .from('messages')
-            .select('*')
-            .eq('conversation_id', conversationId)
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .single();
-
-        if (error) return null;
-        return data;
+        const list = await pb.collection('messages').getList<Message>(1, 1, {
+            filter: `conversation_id = "${conversationId}"`,
+            sort: '-created',
+        });
+        return list.items.length > 0 ? list.items[0] : null;
     } catch {
         return getLastMessageFromLocalStorage(conversationId);
     }
 }
 
-// LocalStorage fallback functions
+// LocalStorage fallback functions (types adjusted)
 function saveConversationToLocalStorage(conversation: Conversation): void {
     const conversations = getConversationsFromLocalStorageArray();
     const existingIndex = conversations.findIndex(c => c.id === conversation.id);
-    
+
     if (existingIndex >= 0) {
         conversations[existingIndex] = conversation;
     } else {
         conversations.push(conversation);
     }
-
-    localStorage.setItem('saphira_conversations', JSON.stringify(conversations));
+    localStorage.setItem('spotgp_conversations', JSON.stringify(conversations));
 }
 
 function getOrCreateConversationFromLocalStorage(userId1: string, userId2: string): Conversation {
     const conversations = getConversationsFromLocalStorageArray();
-    const existing = conversations.find(c => 
+    const existing = conversations.find(c =>
         (c.participant1_id === userId1 && c.participant2_id === userId2) ||
         (c.participant1_id === userId2 && c.participant2_id === userId1)
     );
@@ -349,8 +294,8 @@ function getOrCreateConversationFromLocalStorage(userId1: string, userId2: strin
         participant1_id: userId1,
         participant2_id: userId2,
         last_message_at: null,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        created: new Date().toISOString(),
+        updated: new Date().toISOString(),
     };
 
     saveConversationToLocalStorage(newConversation);
@@ -358,7 +303,7 @@ function getOrCreateConversationFromLocalStorage(userId1: string, userId2: strin
 }
 
 function getConversationsFromLocalStorageArray(): Conversation[] {
-    const stored = localStorage.getItem('saphira_conversations');
+    const stored = localStorage.getItem('spotgp_conversations');
     return stored ? JSON.parse(stored) : [];
 }
 
@@ -377,20 +322,19 @@ function getConversationsFromLocalStorage(userId: string): ConversationWithParti
 function saveMessageToLocalStorage(message: Message): void {
     const messages = getMessagesFromLocalStorageArray();
     messages.push(message);
-    localStorage.setItem('saphira_messages', JSON.stringify(messages));
+    localStorage.setItem('spotgp_messages', JSON.stringify(messages));
 
-    // Update conversation last_message_at
     const conversations = getConversationsFromLocalStorageArray();
     const convIndex = conversations.findIndex(c => c.id === message.conversation_id);
     if (convIndex >= 0) {
-        conversations[convIndex].last_message_at = message.created_at;
-        conversations[convIndex].updated_at = new Date().toISOString();
-        localStorage.setItem('saphira_conversations', JSON.stringify(conversations));
+        conversations[convIndex].last_message_at = message.created;
+        conversations[convIndex].updated = new Date().toISOString();
+        localStorage.setItem('spotgp_conversations', JSON.stringify(conversations));
     }
 }
 
 function getMessagesFromLocalStorageArray(): Message[] {
-    const stored = localStorage.getItem('saphira_messages');
+    const stored = localStorage.getItem('spotgp_messages');
     return stored ? JSON.parse(stored) : [];
 }
 
@@ -398,7 +342,7 @@ function getMessagesFromLocalStorage(conversationId: string, limit: number): Mes
     const messages = getMessagesFromLocalStorageArray();
     return messages
         .filter(m => m.conversation_id === conversationId)
-        .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+        .sort((a, b) => new Date(a.created).getTime() - new Date(b.created).getTime())
         .slice(-limit)
         .map(msg => ({ ...msg, sender: undefined })) as MessageWithSender[];
 }
@@ -407,14 +351,14 @@ function getLastMessageFromLocalStorage(conversationId: string): Message | null 
     const messages = getMessagesFromLocalStorageArray();
     const convMessages = messages
         .filter(m => m.conversation_id === conversationId)
-        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-    
+        .sort((a, b) => new Date(b.created).getTime() - new Date(a.created).getTime());
+
     return convMessages.length > 0 ? convMessages[0] : null;
 }
 
 function getUnreadCountFromLocalStorage(conversationId: string, userId: string): number {
     const messages = getMessagesFromLocalStorageArray();
-    return messages.filter(m => 
+    return messages.filter(m =>
         m.conversation_id === conversationId &&
         m.sender_id !== userId &&
         !m.is_read
@@ -423,11 +367,10 @@ function getUnreadCountFromLocalStorage(conversationId: string, userId: string):
 
 function updateMessagesReadStatus(conversationId: string, userId: string): void {
     const messages = getMessagesFromLocalStorageArray();
-    const updated = messages.map(m => 
+    const updated = messages.map(m =>
         m.conversation_id === conversationId && m.sender_id !== userId
             ? { ...m, is_read: true }
             : m
     );
-    localStorage.setItem('saphira_messages', JSON.stringify(updated));
+    localStorage.setItem('spotgp_messages', JSON.stringify(updated));
 }
-

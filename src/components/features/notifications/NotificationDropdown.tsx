@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
-import { Bell, Check, X, Loader2 } from 'lucide-react';
+import { Bell, X, Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
@@ -25,7 +25,7 @@ export function NotificationDropdown({ isOpen, onClose }: NotificationDropdownPr
     useEffect(() => {
         if (isOpen && user?.id) {
             loadNotifications();
-            
+
             // Poll for new notifications every 10 seconds when open
             const interval = setInterval(loadNotifications, 10000);
             return () => clearInterval(interval);
@@ -47,7 +47,7 @@ export function NotificationDropdown({ isOpen, onClose }: NotificationDropdownPr
 
     const loadNotifications = async () => {
         if (!user?.id) return;
-        
+
         setLoading(true);
         try {
             const data = await getUserNotifications(user.id, { limit: 10 });

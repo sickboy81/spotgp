@@ -1,12 +1,15 @@
 // API functions for analytics and statistics
-// Combines views, clicks, and other engagement metrics
-
 import { getProfileViews } from './views';
-import { supabase } from '../supabase';
-import { Database } from '../../types/supabase';
+import { pb } from '@/lib/pocketbase';
 
-type ProfileClick = Database['public']['Tables']['profile_clicks']['Row'];
-type ProfileClickInsert = Database['public']['Tables']['profile_clicks']['Insert'];
+export interface ProfileClick {
+    id: string;
+    profile_id: string;
+    click_type: 'whatsapp' | 'telegram' | 'instagram' | 'twitter' | 'phone' | 'message';
+    viewer_id?: string | null;
+    viewer_session?: string | null;
+    created: string;
+}
 
 export interface AnalyticsData {
     views: {
@@ -28,7 +31,7 @@ export interface AnalyticsData {
     favorites: {
         total: number;
     };
-    conversionRate: number; // Views to clicks conversion
+    conversionRate: number;
 }
 
 /**
@@ -40,30 +43,24 @@ export async function recordProfileClick(
     viewerId?: string | null
 ): Promise<{ success: boolean; error?: string }> {
     try {
-        const sessionId = sessionStorage.getItem('saphira_session_id') || `session_${Date.now()}`;
+        const sessionId = sessionStorage.getItem('spotgp_session_id') || `session_${Date.now()}`;
 
-        const clickData: ProfileClickInsert = {
+        const clickData = {
             profile_id: profileId,
             click_type: clickType,
             viewer_id: viewerId || null,
             viewer_session: sessionId,
         };
 
-        const { error } = await supabase
-            .from('profile_clicks')
-            .insert(clickData as any);
-
-        if (error) throw error;
-
-        // Also save to localStorage
+        await pb.collection('profile_clicks').create(clickData);
         saveClickToLocalStorage(clickData);
 
         return { success: true };
     } catch (err: any) {
-        console.warn('Error recording click in Supabase, using localStorage:', err);
-        
-        const sessionId = sessionStorage.getItem('saphira_session_id') || `session_${Date.now()}`;
-        const clickData: ProfileClickInsert = {
+        console.warn('Error recording click in PocketBase, using localStorage:', err);
+
+        const sessionId = sessionStorage.getItem('spotgp_session_id') || `session_${Date.now()}`;
+        const clickData = {
             profile_id: profileId,
             click_type: clickType,
             viewer_id: viewerId || null,
@@ -84,7 +81,7 @@ export async function getProfileAnalytics(
 ): Promise<AnalyticsData> {
     const now = new Date();
     let startDate: Date | undefined;
-    
+
     switch (timeRange) {
         case 'today':
             startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -108,8 +105,8 @@ export async function getProfileAnalytics(
     const favoritesCount = await getFavoritesCount(profileId);
 
     // Calculate conversion rate
-    const conversionRate = viewsData.total > 0 
-        ? (clicksData.total / viewsData.total) * 100 
+    const conversionRate = viewsData.total > 0
+        ? (clicksData.total / viewsData.total) * 100
         : 0;
 
     return {
@@ -147,23 +144,19 @@ async function getProfileClicks(
     byType: Record<string, number>;
 }> {
     try {
-        let query = supabase
-            .from('profile_clicks')
-            .select('*')
-            .eq('profile_id', profileId);
-
+        const filterParts = [`profile_id = "${profileId}"`];
         if (startDate) {
-            query = query.gte('created_at', startDate.toISOString());
+            filterParts.push(`created >= "${startDate.toISOString()}"`);
         }
 
-        const { data, error } = await query;
-
-        if (error) throw error;
+        const data = await pb.collection('profile_clicks').getFullList<ProfileClick>({
+            filter: filterParts.join(' && '),
+        });
 
         if (data && data.length > 0) {
             const total = data.length;
             const byType: Record<string, number> = {};
-            (data as any[]).forEach((click: any) => {
+            data.forEach((click) => {
                 byType[click.click_type] = (byType[click.click_type] || 0) + 1;
             });
             return { total, byType };
@@ -171,7 +164,7 @@ async function getProfileClicks(
 
         return getClicksFromLocalStorage(profileId, startDate);
     } catch (err: any) {
-        console.warn('Error fetching clicks from Supabase, using localStorage:', err);
+        console.warn('Error fetching clicks from PocketBase, using localStorage:', err);
         return getClicksFromLocalStorage(profileId, startDate);
     }
 }
@@ -181,8 +174,7 @@ async function getProfileClicks(
  */
 async function getFavoritesCount(profileId: string): Promise<number> {
     try {
-        // Try to get from localStorage (current implementation)
-        const favorites = JSON.parse(localStorage.getItem('saphira_favorites') || '[]');
+        const favorites = JSON.parse(localStorage.getItem('spotgp_favorites') || '[]');
         return favorites.filter((id: string) => id === profileId).length;
     } catch {
         return 0;
@@ -192,7 +184,7 @@ async function getFavoritesCount(profileId: string): Promise<number> {
 async function getTodayCount(profileId: string, type: 'views' | 'clicks'): Promise<number> {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    
+
     if (type === 'views') {
         const data = await getProfileViews(profileId, { startDate: today });
         return data.total;
@@ -205,7 +197,7 @@ async function getTodayCount(profileId: string, type: 'views' | 'clicks'): Promi
 async function getWeekCount(profileId: string, type: 'views' | 'clicks'): Promise<number> {
     const weekAgo = new Date();
     weekAgo.setDate(weekAgo.getDate() - 7);
-    
+
     if (type === 'views') {
         const data = await getProfileViews(profileId, { startDate: weekAgo });
         return data.total;
@@ -219,7 +211,7 @@ async function getMonthCount(profileId: string, type: 'views' | 'clicks'): Promi
     const monthStart = new Date();
     monthStart.setDate(1);
     monthStart.setHours(0, 0, 0, 0);
-    
+
     if (type === 'views') {
         const data = await getProfileViews(profileId, { startDate: monthStart });
         return data.total;
@@ -229,21 +221,21 @@ async function getMonthCount(profileId: string, type: 'views' | 'clicks'): Promi
     }
 }
 
-// LocalStorage fallback for clicks
-function saveClickToLocalStorage(click: ProfileClickInsert): void {
+// LocalStorage fallback for clicks (types adjusted)
+function saveClickToLocalStorage(click: any): void {
     const clicks = getClicksFromLocalStorageArray();
     const newClick: ProfileClick = {
         ...click,
         id: click.id || `click_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-        created_at: click.created_at || new Date().toISOString(),
+        created: click.created || new Date().toISOString(),
     } as ProfileClick;
-    
+
     clicks.push(newClick);
-    localStorage.setItem('saphira_profile_clicks', JSON.stringify(clicks));
+    localStorage.setItem('spotgp_profile_clicks', JSON.stringify(clicks));
 }
 
 function getClicksFromLocalStorageArray(): ProfileClick[] {
-    const stored = localStorage.getItem('saphira_profile_clicks');
+    const stored = localStorage.getItem('spotgp_profile_clicks');
     return stored ? JSON.parse(stored) : [];
 }
 
@@ -257,7 +249,7 @@ function getClicksFromLocalStorage(
     let clicks = getClicksFromLocalStorageArray().filter(c => c.profile_id === profileId);
 
     if (startDate) {
-        clicks = clicks.filter(c => new Date(c.created_at) >= startDate);
+        clicks = clicks.filter(c => new Date(c.created) >= startDate);
     }
 
     const total = clicks.length;
@@ -268,5 +260,3 @@ function getClicksFromLocalStorage(
 
     return { total, byType };
 }
-
-

@@ -1,7 +1,8 @@
 // Complete backup and restore functionality
 // Captures ALL data from the system for full site migration/restoration
 
-import { supabase } from '../supabase';
+import { pb } from '@/lib/pocketbase';
+import { RecordModel } from 'pocketbase';
 
 export interface BackupData {
     version: string;
@@ -18,15 +19,15 @@ export interface BackupData {
         total_notifications: number;
     };
     data: {
-        profiles: any[];
-        media: any[];
-        verification_documents: any[];
-        reports: any[];
-        profile_views: any[];
-        profile_clicks: any[];
-        conversations: any[];
-        messages: any[];
-        notifications: any[];
+        profiles: RecordModel[];
+        media: RecordModel[];
+        verification_documents: RecordModel[];
+        reports: RecordModel[];
+        profile_views: RecordModel[];
+        profile_clicks: RecordModel[];
+        conversations: RecordModel[];
+        messages: RecordModel[];
+        notifications: RecordModel[];
         // Add any other tables here
     };
 }
@@ -39,94 +40,31 @@ export async function createFullBackup(userId: string): Promise<BackupData> {
         console.log('Iniciando backup completo...');
 
         // 1. Profiles (with all fields)
-        const { data: profiles, error: profilesError } = await supabase
-            .from('profiles')
-            .select('*')
-            .order('created_at', { ascending: true });
-
-        if (profilesError) {
-            console.warn('Erro ao buscar profiles:', profilesError);
-        }
+        const profiles = await pb.collection('profiles').getFullList({ sort: '+created' });
 
         // 2. Media (all images and videos)
-        const { data: media, error: mediaError } = await supabase
-            .from('media')
-            .select('*')
-            .order('created_at', { ascending: true });
-
-        if (mediaError) {
-            console.warn('Erro ao buscar media:', mediaError);
-        }
+        const media = await pb.collection('media').getFullList({ sort: '+created' });
 
         // 3. Verification Documents
-        const { data: verification_documents, error: verifError } = await supabase
-            .from('verification_documents')
-            .select('*')
-            .order('created_at', { ascending: true });
-
-        if (verifError) {
-            console.warn('Erro ao buscar verification_documents:', verifError);
-        }
+        const verification_documents = await pb.collection('verification_documents').getFullList({ sort: '+created' });
 
         // 4. Reports
-        const { data: reports, error: reportsError } = await supabase
-            .from('reports')
-            .select('*')
-            .order('created_at', { ascending: true });
-
-        if (reportsError) {
-            console.warn('Erro ao buscar reports:', reportsError);
-        }
+        const reports = await pb.collection('reports').getFullList({ sort: '+created' });
 
         // 5. Profile Views
-        const { data: profile_views, error: viewsError } = await supabase
-            .from('profile_views')
-            .select('*')
-            .order('created_at', { ascending: true });
-
-        if (viewsError) {
-            console.warn('Erro ao buscar profile_views:', viewsError);
-        }
+        const profile_views = await pb.collection('profile_views').getFullList({ sort: '+created' });
 
         // 6. Profile Clicks
-        const { data: profile_clicks, error: clicksError } = await supabase
-            .from('profile_clicks')
-            .select('*')
-            .order('created_at', { ascending: true });
-
-        if (clicksError) {
-            console.warn('Erro ao buscar profile_clicks:', clicksError);
-        }
+        const profile_clicks = await pb.collection('profile_clicks').getFullList({ sort: '+created' });
 
         // 7. Conversations
-        const { data: conversations, error: convError } = await supabase
-            .from('conversations')
-            .select('*')
-            .order('created_at', { ascending: true });
-
-        if (convError) {
-            console.warn('Erro ao buscar conversations:', convError);
-        }
+        const conversations = await pb.collection('conversations').getFullList({ sort: '+created' });
 
         // 8. Messages
-        const { data: messages, error: msgError } = await supabase
-            .from('messages')
-            .select('*')
-            .order('created_at', { ascending: true });
-
-        if (msgError) {
-            console.warn('Erro ao buscar messages:', msgError);
-        }
+        const messages = await pb.collection('messages').getFullList({ sort: '+created' });
 
         // 9. Notifications
-        const { data: notifications, error: notifError } = await supabase
-            .from('notifications')
-            .select('*')
-            .order('created_at', { ascending: true });
-
-        if (notifError) {
-            console.warn('Erro ao buscar notifications:', notifError);
-        }
+        const notifications = await pb.collection('notifications').getFullList({ sort: '+created' });
 
         // Compile backup data
         const backupData: BackupData = {
@@ -183,146 +121,69 @@ export async function restoreFullBackup(backupData: BackupData): Promise<{ succe
 
         // 1. Clear existing data (in reverse dependency order)
         console.log('Limpando dados existentes...');
-        
-        // Delete dependent tables first
-        await supabase.from('messages').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-        await supabase.from('conversations').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-        await supabase.from('notifications').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-        await supabase.from('profile_clicks').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-        await supabase.from('profile_views').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-        await supabase.from('reports').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-        await supabase.from('verification_documents').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-        await supabase.from('media').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-        await supabase.from('profiles').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+
+        // PB doesn't have a simple "truncate" or "delete all" command exposed safely.
+        // We would iterate and delete. For this migration tool, we'll assume the user
+        // knows this is dangerous.
+        // Implementing proper deletion in PB requires fetching IDs and deleting.
+
+        const deleteCollection = async (collection: string) => {
+            try {
+                const items = await pb.collection(collection).getFullList({ fields: 'id' });
+                for (const item of items) {
+                    await pb.collection(collection).delete(item.id);
+                }
+            } catch (e) {
+                console.log(`Could not clear ${collection}, maybe empty or error`, e);
+            }
+        };
+
+        const collections = [
+            'messages', 'conversations', 'notifications', 'profile_clicks',
+            'profile_views', 'reports', 'verification_documents', 'media', 'profiles'
+        ];
+
+        for (const col of collections) {
+            await deleteCollection(col);
+        }
 
         // 2. Restore data (in dependency order)
         console.log('Restaurando dados...');
 
-        // Profiles first (base table)
-        if (backupData.data.profiles.length > 0) {
-            const { error: profilesError } = await supabase
-                .from('profiles')
-                .insert(backupData.data.profiles as any);
-            if (profilesError) {
-                errors.push(`Erro ao restaurar profiles: ${profilesError.message}`);
-                console.error('Erro ao restaurar profiles:', profilesError);
-            } else {
-                console.log(`✓ ${backupData.data.profiles.length} profiles restaurados`);
+        const restoreCollection = async (collection: string, items: RecordModel[]) => {
+            if (!items || items.length === 0) return;
+            for (const item of items) {
+                try {
+                    // We might need to handle ID preservation. PB creates new IDs mostly unless we force it.
+                    // But PB allows setting ID on create.
+                    await pb.collection(collection).create(item);
+                } catch (e) {
+                    const message = e instanceof Error ? e.message : 'Unknown error';
+                    errors.push(`Erro ao restaurar ${collection} (ID: ${item.id}): ${message}`);
+                }
             }
-        }
+            console.log(`✓ ${items.length} ${collection} restaurados`);
+        };
 
-        // Media
-        if (backupData.data.media.length > 0) {
-            const { error: mediaError } = await supabase
-                .from('media')
-                .insert(backupData.data.media as any);
-            if (mediaError) {
-                errors.push(`Erro ao restaurar media: ${mediaError.message}`);
-                console.error('Erro ao restaurar media:', mediaError);
-            } else {
-                console.log(`✓ ${backupData.data.media.length} media restaurados`);
-            }
-        }
-
-        // Verification Documents
-        if (backupData.data.verification_documents.length > 0) {
-            const { error: verifError } = await supabase
-                .from('verification_documents')
-                .insert(backupData.data.verification_documents as any);
-            if (verifError) {
-                errors.push(`Erro ao restaurar verification_documents: ${verifError.message}`);
-                console.error('Erro ao restaurar verification_documents:', verifError);
-            } else {
-                console.log(`✓ ${backupData.data.verification_documents.length} verification_documents restaurados`);
-            }
-        }
-
-        // Reports
-        if (backupData.data.reports.length > 0) {
-            const { error: reportsError } = await supabase
-                .from('reports')
-                .insert(backupData.data.reports);
-            if (reportsError) {
-                errors.push(`Erro ao restaurar reports: ${reportsError.message}`);
-                console.error('Erro ao restaurar reports:', reportsError);
-            } else {
-                console.log(`✓ ${backupData.data.reports.length} reports restaurados`);
-            }
-        }
-
-        // Profile Views
-        if (backupData.data.profile_views.length > 0) {
-            const { error: viewsError } = await supabase
-                .from('profile_views')
-                .insert(backupData.data.profile_views);
-            if (viewsError) {
-                errors.push(`Erro ao restaurar profile_views: ${viewsError.message}`);
-                console.error('Erro ao restaurar profile_views:', viewsError);
-            } else {
-                console.log(`✓ ${backupData.data.profile_views.length} profile_views restaurados`);
-            }
-        }
-
-        // Profile Clicks
-        if (backupData.data.profile_clicks.length > 0) {
-            const { error: clicksError } = await supabase
-                .from('profile_clicks')
-                .insert(backupData.data.profile_clicks);
-            if (clicksError) {
-                errors.push(`Erro ao restaurar profile_clicks: ${clicksError.message}`);
-                console.error('Erro ao restaurar profile_clicks:', clicksError);
-            } else {
-                console.log(`✓ ${backupData.data.profile_clicks.length} profile_clicks restaurados`);
-            }
-        }
-
-        // Conversations
-        if (backupData.data.conversations.length > 0) {
-            const { error: convError } = await supabase
-                .from('conversations')
-                .insert(backupData.data.conversations);
-            if (convError) {
-                errors.push(`Erro ao restaurar conversations: ${convError.message}`);
-                console.error('Erro ao restaurar conversations:', convError);
-            } else {
-                console.log(`✓ ${backupData.data.conversations.length} conversations restauradas`);
-            }
-        }
-
-        // Messages
-        if (backupData.data.messages.length > 0) {
-            const { error: msgError } = await supabase
-                .from('messages')
-                .insert(backupData.data.messages);
-            if (msgError) {
-                errors.push(`Erro ao restaurar messages: ${msgError.message}`);
-                console.error('Erro ao restaurar messages:', msgError);
-            } else {
-                console.log(`✓ ${backupData.data.messages.length} messages restaurados`);
-            }
-        }
-
-        // Notifications
-        if (backupData.data.notifications.length > 0) {
-            const { error: notifError } = await supabase
-                .from('notifications')
-                .insert(backupData.data.notifications);
-            if (notifError) {
-                errors.push(`Erro ao restaurar notifications: ${notifError.message}`);
-                console.error('Erro ao restaurar notifications:', notifError);
-            } else {
-                console.log(`✓ ${backupData.data.notifications.length} notifications restauradas`);
-            }
-        }
+        await restoreCollection('profiles', backupData.data.profiles);
+        await restoreCollection('media', backupData.data.media);
+        await restoreCollection('verification_documents', backupData.data.verification_documents);
+        await restoreCollection('reports', backupData.data.reports);
+        await restoreCollection('profile_views', backupData.data.profile_views);
+        await restoreCollection('profile_clicks', backupData.data.profile_clicks);
+        await restoreCollection('conversations', backupData.data.conversations);
+        await restoreCollection('messages', backupData.data.messages);
+        await restoreCollection('notifications', backupData.data.notifications);
 
         console.log('Restauração concluída!');
         return {
             success: errors.length === 0,
             errors,
         };
-    } catch (error: any) {
+    } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
         console.error('Erro fatal durante restauração:', error);
-        errors.push(`Erro fatal: ${error.message}`);
+        errors.push(`Erro fatal: ${message}`);
         return {
             success: false,
             errors,
@@ -413,5 +274,3 @@ export function importBackupFromFile(file: File): Promise<BackupData> {
         reader.readAsText(file);
     });
 }
-
-

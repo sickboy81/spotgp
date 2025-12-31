@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Image as ImageIcon, Video, FileText, Search, Trash2, Eye, Download, Filter, Loader2, User } from 'lucide-react';
+import { Image as ImageIcon, Video, FileText, Search, Trash2, Download, Loader2, User } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 
@@ -39,12 +39,6 @@ export default function MediaManagement() {
         }
     };
 
-    const handleDelete = async (id: string) => {
-        if (!confirm('Tem certeza que deseja deletar este arquivo?')) return;
-        // TODO: Delete from database and storage
-        setMedia(media.filter(m => m.id !== id));
-    };
-
     const handleBulkDelete = async () => {
         if (!confirm(`Tem certeza que deseja deletar ${selectedItems.length} arquivo(s)?`)) return;
         // TODO: Bulk delete
@@ -61,7 +55,7 @@ export default function MediaManagement() {
     };
 
     const filteredMedia = media.filter(item => {
-        const matchesSearch = 
+        const matchesSearch =
             item.owner_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
             item.url.toLowerCase().includes(searchTerm.toLowerCase());
         const matchesType = filterType === 'all' || item.type === filterType;
@@ -139,13 +133,15 @@ export default function MediaManagement() {
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                         className="w-full pl-10 pr-4 py-2 bg-background border border-input rounded-lg focus:ring-2 focus:ring-primary outline-none"
+                        aria-label="Buscar mídia"
                     />
                 </div>
                 <div className="flex gap-2">
                     <select
                         value={filterType}
-                        onChange={(e) => setFilterType(e.target.value as any)}
+                        onChange={(e) => setFilterType(e.target.value as 'all' | 'image' | 'video')}
                         className="px-4 py-2 bg-background border border-input rounded-lg focus:ring-2 focus:ring-primary outline-none"
+                        aria-label="Filtrar por tipo"
                     >
                         <option value="all">Todos</option>
                         <option value="image">Imagens</option>

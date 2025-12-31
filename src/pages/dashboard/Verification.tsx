@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react';
-import { CheckCircle, XCircle, Clock, AlertCircle, Upload, FileText } from 'lucide-react';
+import { CheckCircle, XCircle, Clock, AlertCircle, FileText } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { DocumentUploader } from '@/components/features/verification/DocumentUploader';
-import { 
-    getVerificationStatus, 
-    submitVerificationRequest, 
+import {
+    getVerificationStatus,
+    submitVerificationRequest,
     uploadVerificationDocument,
-    VerificationStatus 
+    VerificationStatus
 } from '@/lib/api/verification';
 import { cn } from '@/lib/utils';
 
@@ -29,6 +29,19 @@ export default function Verification() {
     const [selfieFile, setSelfieFile] = useState<File | null>(null);
 
     useEffect(() => {
+        const loadStatus = async () => {
+            if (!user?.id) return;
+            setLoading(true);
+            try {
+                const verificationStatus = await getVerificationStatus(user.id);
+                setStatus(verificationStatus);
+            } catch (err) {
+                console.error('Error loading verification status:', err);
+            } finally {
+                setLoading(false);
+            }
+        };
+
         if (user?.id) {
             loadStatus();
         }
@@ -99,8 +112,8 @@ export default function Verification() {
             } else {
                 setError(result.error || 'Erro ao enviar solicitação de verificação.');
             }
-        } catch (err: any) {
-            setError(err.message || 'Erro ao processar solicitação.');
+        } catch (err: unknown) {
+            setError((err as any).message || 'Erro ao processar solicitação.');
         } finally {
             setSubmitting(false);
         }
@@ -108,7 +121,7 @@ export default function Verification() {
 
     const getStatusIcon = () => {
         if (!status) return null;
-        
+
         switch (status.verification_status) {
             case 'approved':
                 return <CheckCircle className="w-8 h-8 text-green-500" />;
@@ -124,8 +137,12 @@ export default function Verification() {
     };
 
     const getStatusMessage = () => {
-        if (!status) return 'Carregando...';
-        
+        if (!status) return {
+            title: 'Carregando...',
+            description: 'Carregando status da verificação...',
+            color: 'text-muted-foreground bg-muted border-border'
+        };
+
         switch (status.verification_status) {
             case 'approved':
                 return {
@@ -160,9 +177,9 @@ export default function Verification() {
         }
     };
 
-    const canSubmit = status?.verification_status !== 'pending' && 
-                      status?.verification_status !== 'under_review' &&
-                      frontUrl !== null;
+    const canSubmit = status?.verification_status !== 'pending' &&
+        status?.verification_status !== 'under_review' &&
+        frontUrl !== null;
 
     if (loading) {
         return (
@@ -212,66 +229,66 @@ export default function Verification() {
             )}
 
             {/* Upload Form */}
-            {(status?.verification_status === null || 
-              status?.verification_status === 'rejected') && (
-                <div className="bg-card border border-border rounded-xl p-6 space-y-6">
-                    <div className="flex items-center gap-2 mb-4">
-                        <FileText className="w-5 h-5 text-primary" />
-                        <h2 className="text-xl font-bold">Enviar Documentos</h2>
+            {(status?.verification_status === null ||
+                status?.verification_status === 'rejected') && (
+                    <div className="bg-card border border-border rounded-xl p-6 space-y-6">
+                        <div className="flex items-center gap-2 mb-4">
+                            <FileText className="w-5 h-5 text-primary" />
+                            <h2 className="text-xl font-bold">Enviar Documentos</h2>
+                        </div>
+
+                        <div className="space-y-6">
+                            {/* Front of Document */}
+                            <DocumentUploader
+                                label="Foto da Frente do Documento"
+                                required
+                                value={frontUrl}
+                                onChange={setFrontUrl}
+                                onFileSelect={(file) => handleFileSelect('front', file)}
+                                maxSizeMB={5}
+                            />
+
+                            {/* Back of Document */}
+                            <DocumentUploader
+                                label="Foto do Verso do Documento (Opcional)"
+                                value={backUrl}
+                                onChange={setBackUrl}
+                                onFileSelect={(file) => handleFileSelect('back', file)}
+                                maxSizeMB={5}
+                            />
+
+                            {/* Selfie with Document */}
+                            <DocumentUploader
+                                label="Selfie Segurando o Documento (Opcional, mas Recomendado)"
+                                value={selfieUrl}
+                                onChange={setSelfieUrl}
+                                onFileSelect={(file) => handleFileSelect('selfie', file)}
+                                maxSizeMB={5}
+                            />
+                        </div>
+
+                        <div className="bg-muted/50 border border-border rounded-lg p-4">
+                            <h3 className="font-semibold mb-2 text-sm">Instruções:</h3>
+                            <ul className="text-sm text-muted-foreground space-y-1 list-disc list-inside">
+                                <li>O documento deve estar legível e com foto visível</li>
+                                <li>Certifique-se de que a data de nascimento está clara</li>
+                                <li>A selfie com documento ajuda a acelerar o processo</li>
+                                <li>Os documentos são mantidos em segurança e confidencialidade</li>
+                            </ul>
+                        </div>
+
+                        <button
+                            onClick={handleSubmit}
+                            disabled={!canSubmit || submitting}
+                            className={cn(
+                                "w-full bg-primary text-primary-foreground px-6 py-3 rounded-lg font-semibold transition-opacity",
+                                (!canSubmit || submitting) && "opacity-50 cursor-not-allowed"
+                            )}
+                        >
+                            {submitting ? 'Enviando...' : 'Enviar Solicitação de Verificação'}
+                        </button>
                     </div>
-
-                    <div className="space-y-6">
-                        {/* Front of Document */}
-                        <DocumentUploader
-                            label="Foto da Frente do Documento"
-                            required
-                            value={frontUrl}
-                            onChange={setFrontUrl}
-                            onFileSelect={(file) => handleFileSelect('front', file)}
-                            maxSizeMB={5}
-                        />
-
-                        {/* Back of Document */}
-                        <DocumentUploader
-                            label="Foto do Verso do Documento (Opcional)"
-                            value={backUrl}
-                            onChange={setBackUrl}
-                            onFileSelect={(file) => handleFileSelect('back', file)}
-                            maxSizeMB={5}
-                        />
-
-                        {/* Selfie with Document */}
-                        <DocumentUploader
-                            label="Selfie Segurando o Documento (Opcional, mas Recomendado)"
-                            value={selfieUrl}
-                            onChange={setSelfieUrl}
-                            onFileSelect={(file) => handleFileSelect('selfie', file)}
-                            maxSizeMB={5}
-                        />
-                    </div>
-
-                    <div className="bg-muted/50 border border-border rounded-lg p-4">
-                        <h3 className="font-semibold mb-2 text-sm">Instruções:</h3>
-                        <ul className="text-sm text-muted-foreground space-y-1 list-disc list-inside">
-                            <li>O documento deve estar legível e com foto visível</li>
-                            <li>Certifique-se de que a data de nascimento está clara</li>
-                            <li>A selfie com documento ajuda a acelerar o processo</li>
-                            <li>Os documentos são mantidos em segurança e confidencialidade</li>
-                        </ul>
-                    </div>
-
-                    <button
-                        onClick={handleSubmit}
-                        disabled={!canSubmit || submitting}
-                        className={cn(
-                            "w-full bg-primary text-primary-foreground px-6 py-3 rounded-lg font-semibold transition-opacity",
-                            (!canSubmit || submitting) && "opacity-50 cursor-not-allowed"
-                        )}
-                    >
-                        {submitting ? 'Enviando...' : 'Enviar Solicitação de Verificação'}
-                    </button>
-                </div>
-            )}
+                )}
 
             {/* Resubmit Button for Rejected */}
             {status?.verification_status === 'rejected' && (

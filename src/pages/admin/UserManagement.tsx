@@ -1,37 +1,50 @@
 import { useEffect, useState } from 'react';
-import { supabase } from '@/lib/supabase';
-import { Database } from '@/types/supabase';
-import { Search, Trash2, Ban, ShieldCheck, CheckCircle, XCircle, Clock, UserX, Edit, CreditCard, Gift, Mail, BarChart3, FileText, ChevronLeft, ChevronRight, Save, X } from 'lucide-react';
+import { pb } from '@/lib/pocketbase';
+import { RecordModel } from 'pocketbase';
+import { Search, Trash2, Ban, ShieldCheck, CheckCircle, XCircle, Clock, UserX, Edit, CreditCard, Gift, Mail, BarChart3, FileText, ChevronLeft, ChevronRight, Save, X, Phone } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { unbanUser, deleteUser } from '@/lib/api/moderation';
 
-type Profile = Database['public']['Tables']['profiles']['Row'];
+interface UserStats {
+    views?: number;
+    clicks?: number;
+    favorites?: number;
+}
 
-interface UserWithEmail extends Profile {
-    email?: string;
+interface Profile extends RecordModel {
+    display_name?: string;
+    role: 'visitor' | 'advertiser' | 'super_admin';
+    is_banned?: boolean;
+    verified?: boolean;
+    verification_status?: 'pending' | 'under_review' | 'approved' | 'rejected';
     phone?: string;
-    stats?: {
-        views?: number;
-        clicks?: number;
-        favorites?: number;
-    };
+    email?: string;
+    stats?: UserStats;
+}
+
+interface Plan {
+    id: string;
+    name: string;
+    price: number;
+    duration_days: number;
 }
 
 const ITEMS_PER_PAGE = 20;
 
 export default function UserManagement() {
-    const [users, setUsers] = useState<UserWithEmail[]>([]);
+    const [users, setUsers] = useState<Profile[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
     const [showPlanModal, setShowPlanModal] = useState(false);
     const [showEditModal, setShowEditModal] = useState(false);
     const [showStatsModal, setShowStatsModal] = useState(false);
     const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
-    const [selectedUser, setSelectedUser] = useState<UserWithEmail | null>(null);
-    const [availablePlans, setAvailablePlans] = useState<any[]>([]);
+    const [selectedUser, setSelectedUser] = useState<Profile | null>(null);
+    const [availablePlans, setAvailablePlans] = useState<Plan[]>([]);
     const [currentPage, setCurrentPage] = useState(1);
-    
+    const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'banned' | 'verified' | 'unverified'>('all');
+
     // Edit form state
     const [editForm, setEditForm] = useState({
         display_name: '',
@@ -47,7 +60,7 @@ export default function UserManagement() {
     const loadPlans = async () => {
         try {
             // TODO: Load from database
-            const mockPlans = [
+            const mockPlans: Plan[] = [
                 { id: 'plan_1', name: 'Básico', price: 49.90, duration_days: 30 },
                 { id: 'plan_2', name: 'Premium', price: 99.90, duration_days: 30 },
             ];
@@ -57,7 +70,8 @@ export default function UserManagement() {
         }
     };
 
-    const handleAssignPlan = async (userId: string, planId: string, isTrial: boolean = false) => {
+    const handleAssignPlan = async (userId: string | null, planId: string, isTrial: boolean = false) => {
+        if (!userId) return;
         const plan = availablePlans.find(p => p.id === planId);
         if (!plan) return;
 
@@ -72,7 +86,7 @@ export default function UserManagement() {
         setShowPlanModal(true);
     };
 
-    const handleOpenEditModal = (user: UserWithEmail) => {
+    const handleOpenEditModal = (user: Profile) => {
         setSelectedUser(user);
         setEditForm({
             display_name: user.display_name || '',
@@ -87,15 +101,22 @@ export default function UserManagement() {
 
         try {
             // Update profile
-            const { error: profileError } = await supabase
-                .from('profiles')
-                .update({
-                    display_name: editForm.display_name,
-                    role: editForm.role,
-                } as any)
-                .eq('id', selectedUser.id);
+            await pb.collection('profiles').update(selectedUser.id, {
+                display_name: editForm.display_name,
+                role: editForm.role,
+            });
 
-            if (profileError) throw profileError;
+            // If we need to update 'users' collection too (e.g. name):
+            try {
+                // Check if 'users' collection exists and has these fields before updating
+                // This is a safeguard as 'users' might be a system auth collection
+                // await pb.collection('users').update(selectedUser.id, {
+                //     name: editForm.display_name,
+                //     role: editForm.role,
+                // });
+            } catch (e) {
+                console.log("Could not update users collection", e);
+            }
 
             // TODO: Update email in auth.users (requires admin privileges)
             // This would typically require server-side function or admin API
@@ -104,58 +125,55 @@ export default function UserManagement() {
             setShowEditModal(false);
             setSelectedUser(null);
             alert('Usuário atualizado com sucesso!');
-        } catch (err: any) {
-            console.error('Error updating user:', err);
-            alert('Erro ao atualizar usuário: ' + (err.message || 'Erro desconhecido'));
+        } catch (err: unknown) {
+            const error = err instanceof Error ? err : new Error('Erro desconhecido');
+            console.error('Error updating user:', error);
+            alert('Erro ao atualizar usuário: ' + error.message);
         }
     };
 
-    const handleOpenStatsModal = async (user: UserWithEmail) => {
-        setSelectedUser(user);
-        
+    const handleOpenStatsModal = async (user: Profile) => {
         // Fetch user stats
         try {
             // TODO: Load actual stats from database
-            const mockStats = {
+            const mockStats: UserStats = {
                 views: Math.floor(Math.random() * 1000),
                 clicks: Math.floor(Math.random() * 500),
                 favorites: Math.floor(Math.random() * 100),
             };
-            
+
             setSelectedUser({ ...user, stats: mockStats });
         } catch (err) {
             console.error('Error loading stats:', err);
+            setSelectedUser(user); // Fallback
         }
-        
+
         setShowStatsModal(true);
     };
 
     async function fetchUsers() {
         try {
-            const { data, error } = await supabase
-                .from('profiles')
-                .select('*')
-                .order('created_at', { ascending: false });
-
-            if (error) throw error;
+            const records = await pb.collection('profiles').getFullList<Profile>({
+                sort: '-created',
+            });
 
             // Try to get emails from auth (this might not work without admin privileges)
-            const usersWithEmail = await Promise.all((data || []).map(async (user) => {
+            const usersWithEmail = await Promise.all(records.map(async (user) => {
                 try {
                     // In production, you'd need to query auth.users through a server function
                     // For now, we'll try to get it from localStorage for mock users
                     const mockUsers = JSON.parse(localStorage.getItem('mock_users') || '[]');
-                    const mockUser = mockUsers.find((u: any) => u.id === user.id);
-                    
+                    const mockUser = mockUsers.find((u: { id: string; email: string }) => u.id === user.id);
+
                     return {
                         ...user,
                         email: mockUser?.email || `user_${user.id.slice(0, 8)}@example.com`,
-                    } as UserWithEmail;
+                    };
                 } catch {
                     return {
                         ...user,
                         email: `user_${user.id.slice(0, 8)}@example.com`,
-                    } as UserWithEmail;
+                    };
                 }
             }));
 
@@ -171,13 +189,8 @@ export default function UserManagement() {
         // eslint-disable-next-line no-restricted-globals
         if (!confirm('Tem certeza que deseja banir este usuário?')) return;
         try {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const { error } = await supabase
-                .from('profiles')
-                .update({ is_banned: true } as any)
-                .eq('id', userId);
-
-            if (error) throw error;
+            const result = await import('@/lib/api/moderation').then(m => m.banUser(userId));
+            if (result.error) throw new Error(result.error);
             fetchUsers();
             alert('Usuário banido com sucesso.');
         } catch (err) {
@@ -208,7 +221,7 @@ export default function UserManagement() {
         if (!confirm('Tem certeza que deseja DELETAR PERMANENTEMENTE este usuário? Esta ação não pode ser desfeita!')) return;
         // eslint-disable-next-line no-restricted-globals
         if (!confirm('Esta ação é irreversível. Tem certeza absoluta?')) return;
-        
+
         try {
             const result = await deleteUser(userId);
             if (result.success) {
@@ -223,24 +236,22 @@ export default function UserManagement() {
         }
     };
 
-    const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'banned' | 'verified' | 'unverified'>('all');
-
     const filteredUsers = users.filter(user => {
         const searchLower = searchTerm.toLowerCase();
-        const matchesSearch = user.display_name?.toLowerCase().includes(searchLower) ||
-                             user.role.toLowerCase().includes(searchLower) ||
-                             user.id.toLowerCase().includes(searchLower) ||
-                             user.email?.toLowerCase().includes(searchLower) ||
-                             user.phone?.toLowerCase().includes(searchLower) ||
-                             user.phone?.replace(/\D/g, '').includes(searchTerm.replace(/\D/g, ''));
-        
-        const matchesStatus = 
+        const matchesSearch = (user.display_name?.toLowerCase() || '').includes(searchLower) ||
+            user.role.toLowerCase().includes(searchLower) ||
+            user.id.toLowerCase().includes(searchLower) ||
+            (user.email?.toLowerCase() || '').includes(searchLower) ||
+            (user.phone?.toLowerCase() || '').includes(searchLower) ||
+            (user.phone?.replace(/\D/g, '') || '').includes(searchTerm.replace(/\D/g, ''));
+
+        const matchesStatus =
             filterStatus === 'all' ||
             (filterStatus === 'active' && !user.is_banned) ||
             (filterStatus === 'banned' && user.is_banned) ||
-            (filterStatus === 'verified' && (user as any).verified) ||
-            (filterStatus === 'unverified' && !(user as any).verified);
-        
+            (filterStatus === 'verified' && user.verified) ||
+            (filterStatus === 'unverified' && !user.verified);
+
         return matchesSearch && matchesStatus;
     });
 
@@ -270,12 +281,14 @@ export default function UserManagement() {
                             placeholder="Buscar usuários..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
+                            aria-label="Buscar usuários"
                         />
                     </div>
                     <select
                         value={filterStatus}
-                        onChange={(e) => setFilterStatus(e.target.value as any)}
+                        onChange={(e) => setFilterStatus(e.target.value as 'all' | 'active' | 'banned' | 'verified' | 'unverified')}
                         className="bg-background border border-input rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-primary outline-none"
+                        aria-label="Filtrar por status"
                     >
                         <option value="all">Todos</option>
                         <option value="active">Ativos</option>
@@ -306,9 +319,9 @@ export default function UserManagement() {
                         ) : paginatedUsers.length === 0 ? (
                             <tr><td colSpan={8} className="px-6 py-8 text-center text-muted-foreground">Nenhum usuário encontrado</td></tr>
                         ) : paginatedUsers.map((user) => {
-                            const verificationStatus = (user as any).verification_status;
-                            const isVerified = (user as any).verified;
-                            
+                            const verificationStatus = user.verification_status;
+                            const isVerified = user.verified;
+
                             return (
                                 <tr key={user.id} className="hover:bg-muted/50 transition-colors">
                                     <td className="px-6 py-3">
@@ -340,8 +353,8 @@ export default function UserManagement() {
                                         <span className={cn(
                                             "px-2 py-1 rounded-full text-xs font-medium",
                                             user.role === 'super_admin' ? "bg-red-500/10 text-red-600" :
-                                            user.role === 'advertiser' ? "bg-blue-500/10 text-blue-600" :
-                                            "bg-gray-500/10 text-gray-600"
+                                                user.role === 'advertiser' ? "bg-blue-500/10 text-blue-600" :
+                                                    "bg-gray-500/10 text-gray-600"
                                         )}>
                                             {user.role}
                                         </span>
@@ -384,7 +397,7 @@ export default function UserManagement() {
                                         </span>
                                     </td>
                                     <td className="px-6 py-3 text-sm text-muted-foreground">
-                                        {new Date(user.created_at).toLocaleDateString()}
+                                        {new Date(user.created).toLocaleDateString()}
                                     </td>
                                     <td className="px-6 py-3">
                                         <div className="flex items-center justify-end gap-1 flex-wrap">
@@ -392,6 +405,7 @@ export default function UserManagement() {
                                                 onClick={() => handleOpenEditModal(user)}
                                                 className="p-2 hover:bg-primary/10 rounded-md text-primary transition-colors"
                                                 title="Editar Usuário"
+                                                aria-label={`Editar usuário ${user.display_name}`}
                                             >
                                                 <Edit className="w-4 h-4" />
                                             </button>
@@ -399,6 +413,7 @@ export default function UserManagement() {
                                                 onClick={() => handleOpenStatsModal(user)}
                                                 className="p-2 hover:bg-blue-500/10 rounded-md text-blue-600 transition-colors"
                                                 title="Ver Estatísticas"
+                                                aria-label={`Ver estatísticas de ${user.display_name}`}
                                             >
                                                 <BarChart3 className="w-4 h-4" />
                                             </button>
@@ -407,6 +422,7 @@ export default function UserManagement() {
                                                 target="_blank"
                                                 className="p-2 hover:bg-green-500/10 rounded-md text-green-600 transition-colors inline-block"
                                                 title="Ver Perfil Público"
+                                                aria-label={`Ver perfil público de ${user.display_name}`}
                                             >
                                                 <FileText className="w-4 h-4" />
                                             </Link>
@@ -414,6 +430,7 @@ export default function UserManagement() {
                                                 to={`/admin/content?userId=${user.id}`}
                                                 className="p-2 hover:bg-purple-500/10 rounded-md text-purple-600 transition-colors inline-block"
                                                 title="Ver Anúncios do Usuário"
+                                                aria-label={`Ver anúncios de ${user.display_name}`}
                                             >
                                                 <CreditCard className="w-4 h-4" />
                                             </Link>
@@ -421,6 +438,7 @@ export default function UserManagement() {
                                                 onClick={() => handleOpenPlanModal(user.id)}
                                                 className="p-2 hover:bg-blue-500/10 rounded-md text-blue-600 transition-colors"
                                                 title="Gerenciar Plano"
+                                                aria-label={`Gerenciar plano de ${user.display_name}`}
                                             >
                                                 <Gift className="w-4 h-4" />
                                             </button>
@@ -429,6 +447,7 @@ export default function UserManagement() {
                                                     to="/admin/verification"
                                                     className="p-2 hover:bg-primary/10 rounded-md text-primary transition-colors inline-block"
                                                     title="Ver Documentos"
+                                                    aria-label={`Ver documentos de ${user.display_name}`}
                                                 >
                                                     <ShieldCheck className="w-4 h-4" />
                                                 </Link>
@@ -438,6 +457,7 @@ export default function UserManagement() {
                                                     onClick={() => handleUnban(user.id)}
                                                     className="p-2 hover:bg-green-500/10 rounded-md text-green-600 transition-colors"
                                                     title="Desbanir Usuário"
+                                                    aria-label={`Desbanir usuário ${user.display_name}`}
                                                 >
                                                     <UserX className="w-4 h-4" />
                                                 </button>
@@ -446,6 +466,7 @@ export default function UserManagement() {
                                                     onClick={() => handleBan(user.id)}
                                                     className="p-2 hover:bg-destructive/10 rounded-md text-destructive transition-colors"
                                                     title="Banir Usuário"
+                                                    aria-label={`Banir usuário ${user.display_name}`}
                                                 >
                                                     <Ban className="w-4 h-4" />
                                                 </button>
@@ -454,6 +475,7 @@ export default function UserManagement() {
                                                 onClick={() => handleDelete(user.id)}
                                                 className="p-2 hover:bg-red-600/10 rounded-md text-red-600 transition-colors"
                                                 title="Deletar Usuário Permanentemente"
+                                                aria-label={`Deletar usuário ${user.display_name} permanentemente`}
                                             >
                                                 <Trash2 className="w-4 h-4" />
                                             </button>
@@ -480,6 +502,7 @@ export default function UserManagement() {
                                 "p-2 rounded-md border border-input transition-colors",
                                 currentPage === 1 ? "opacity-50 cursor-not-allowed" : "hover:bg-muted"
                             )}
+                            aria-label="Página anterior"
                         >
                             <ChevronLeft className="w-4 h-4" />
                         </button>
@@ -505,6 +528,8 @@ export default function UserManagement() {
                                                 ? "bg-primary text-primary-foreground"
                                                 : "hover:bg-muted"
                                         )}
+                                        aria-label={`Ir para página ${pageNum}`}
+                                        aria-current={currentPage === pageNum ? 'page' : undefined}
                                     >
                                         {pageNum}
                                     </button>
@@ -518,6 +543,7 @@ export default function UserManagement() {
                                 "p-2 rounded-md border border-input transition-colors",
                                 currentPage === totalPages ? "opacity-50 cursor-not-allowed" : "hover:bg-muted"
                             )}
+                            aria-label="Próxima página"
                         >
                             <ChevronRight className="w-4 h-4" />
                         </button>
@@ -537,38 +563,45 @@ export default function UserManagement() {
                                     setSelectedUser(null);
                                 }}
                                 className="p-1 hover:bg-muted rounded-md transition-colors"
+                                aria-label="Fechar"
                             >
                                 <X className="w-5 h-5" />
                             </button>
                         </div>
                         <div className="space-y-4">
                             <div>
-                                <label className="block text-sm font-medium mb-2">Nome de Exibição</label>
+                                <label className="block text-sm font-medium mb-2" htmlFor="edit-display-name">Nome de Exibição</label>
                                 <input
+                                    id="edit-display-name"
                                     type="text"
                                     value={editForm.display_name}
                                     onChange={(e) => setEditForm(prev => ({ ...prev, display_name: e.target.value }))}
                                     className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-primary outline-none"
+                                    aria-label="Nome de exibição"
                                 />
                             </div>
                             <div>
-                                <label className="block text-sm font-medium mb-2">Email</label>
+                                <label className="block text-sm font-medium mb-2" htmlFor="edit-email">Email</label>
                                 <input
+                                    id="edit-email"
                                     type="email"
                                     value={editForm.email}
                                     onChange={(e) => setEditForm(prev => ({ ...prev, email: e.target.value }))}
                                     className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-primary outline-none"
                                     disabled
                                     title="A alteração de email requer privilégios de administrador do sistema"
+                                    aria-label="Email do usuário"
                                 />
                                 <p className="text-xs text-muted-foreground mt-1">Email não pode ser alterado diretamente</p>
                             </div>
                             <div>
-                                <label className="block text-sm font-medium mb-2">Role</label>
+                                <label className="block text-sm font-medium mb-2" htmlFor="edit-role">Role</label>
                                 <select
+                                    id="edit-role"
                                     value={editForm.role}
-                                    onChange={(e) => setEditForm(prev => ({ ...prev, role: e.target.value as any }))}
+                                    onChange={(e) => setEditForm(prev => ({ ...prev, role: e.target.value as 'visitor' | 'advertiser' | 'super_admin' }))}
                                     className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-primary outline-none"
+                                    aria-label="Role do usuário"
                                 >
                                     <option value="visitor">Visitor</option>
                                     <option value="advertiser">Advertiser</option>
@@ -610,6 +643,7 @@ export default function UserManagement() {
                                     setSelectedUser(null);
                                 }}
                                 className="p-1 hover:bg-muted rounded-md transition-colors"
+                                aria-label="Fechar"
                             >
                                 <X className="w-5 h-5" />
                             </button>

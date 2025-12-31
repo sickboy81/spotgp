@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { X, Image as ImageIcon, Upload, Loader2, CheckCircle } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import { X, Upload, Loader2, CheckCircle } from 'lucide-react';
+import { pb } from '@/lib/pocketbase';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -14,19 +14,19 @@ interface ImageFileWithPreview {
 
 interface ImageUploaderProps {
     onImagesChange: (imageFiles: File[]) => void;
-    onUploadedUrlsChange?: (urls: string[]) => void; // Callback with uploaded URLs
+    onUploadedUrlsChange?: (urls: string[]) => void;
     maxImages?: number;
     minImages?: number;
     existingImages?: string[];
-    autoUpload?: boolean; // Auto-upload when files are selected
+    autoUpload?: boolean;
 }
 
-export function ImageUploader({ 
-    onImagesChange, 
+export function ImageUploader({
+    onImagesChange,
     onUploadedUrlsChange,
     maxImages = 10,
     minImages = 2,
-    existingImages = [],
+    // existingImages = [], // Unused for now
     autoUpload = false
 }: ImageUploaderProps) {
     const { user } = useAuth();
@@ -35,9 +35,6 @@ export function ImageUploader({
     const [error, setError] = useState<string | null>(null);
     const [images, setImages] = useState<ImageFileWithPreview[]>([]);
 
-    /**
-     * Compress image before upload
-     */
     const compressImage = (file: File, maxWidth = 1920, quality = 0.8): Promise<File> => {
         return new Promise((resolve) => {
             const reader = new FileReader();
@@ -69,7 +66,7 @@ export function ImageUploader({
                                 });
                                 resolve(compressedFile);
                             } else {
-                                resolve(file); // Fallback to original
+                                resolve(file);
                             }
                         },
                         file.type,
@@ -80,47 +77,33 @@ export function ImageUploader({
         });
     };
 
-    /**
-     * Upload image to Supabase Storage
-     */
-    const uploadImage = async (file: File, index: number): Promise<string> => {
+    const uploadImage = async (file: File): Promise<string> => {
         if (!user?.id) {
             throw new Error('Usuário não autenticado');
         }
 
-        // Compress image if it's large
         let fileToUpload = file;
-        if (file.size > 1 * 1024 * 1024) { // Compress if > 1MB
+        if (file.size > 1 * 1024 * 1024) {
             fileToUpload = await compressImage(file);
         }
 
-        const fileExt = fileToUpload.name.split('.').pop() || 'jpg';
-        const fileName = `${user.id}/profile_${Date.now()}_${index}.${fileExt}`;
-        const bucketName = 'images'; // Supabase storage bucket name
+        const formData = new FormData();
+        formData.append('file', fileToUpload);
+        formData.append('profile_id', user.id); // Assuming we link it to the user
+        formData.append('type', 'image');
 
-        // Upload to Supabase Storage
-        const { data: uploadData, error: uploadError } = await supabase.storage
-            .from(bucketName)
-            .upload(fileName, fileToUpload, {
-                cacheControl: '3600',
-                upsert: false
-            });
+        try {
+            // Create record in 'media' collection
+            const record = await pb.collection('media').create(formData);
 
-        if (uploadError) {
-            // If bucket doesn't exist, fallback to mock
-            if (uploadError.message?.includes('Bucket not found') || uploadError.message?.includes('not found')) {
-                console.warn('Storage bucket not configured, using mock upload');
-                return `mock://${fileName}`;
-            }
-            throw uploadError;
+            // Construct file URL: /api/files/COLLECTION_ID_OR_NAME/RECORD_ID/FILENAME
+            const fileUrl = pb.files.getUrl(record, record.file);
+
+            return fileUrl;
+        } catch (err: unknown) {
+            console.error('Upload failed:', err);
+            throw new Error((err as Error).message || 'Falha no upload');
         }
-
-        // Get public URL
-        const { data: { publicUrl } } = supabase.storage
-            .from(bucketName)
-            .getPublicUrl(fileName);
-
-        return publicUrl;
     };
 
     const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -135,22 +118,19 @@ export function ImageUploader({
             return;
         }
 
-        // Validate file size (5MB max)
         const oversizedFiles = imageFiles.filter(file => file.size > 5 * 1024 * 1024);
         if (oversizedFiles.length > 0) {
             setError(`Alguns arquivos excedem o limite de 5MB.`);
             return;
         }
 
-        // Check total images limit
         if (images.length + imageFiles.length > maxImages) {
             setError(`Você pode adicionar no máximo ${maxImages} imagens.`);
             return;
         }
 
-        // Create preview URLs and store files
         const startIndex = images.length;
-        const newImages: ImageFileWithPreview[] = imageFiles.map((file, i) => ({
+        const newImages: ImageFileWithPreview[] = imageFiles.map((file) => ({
             file,
             preview: URL.createObjectURL(file),
             uploaded: false
@@ -160,7 +140,6 @@ export function ImageUploader({
         setImages(updatedImages);
         onImagesChange(updatedImages.map(img => img.file));
 
-        // Auto-upload if enabled
         if (autoUpload && user?.id) {
             setUploading(true);
             const uploadedUrls: string[] = [];
@@ -169,20 +148,20 @@ export function ImageUploader({
                 const imageIndex = startIndex + i;
                 try {
                     setUploadProgress(prev => ({ ...prev, [imageIndex]: 0 }));
-                    const url = await uploadImage(newImages[i].file, imageIndex);
+                    const url = await uploadImage(newImages[i].file);
                     uploadedUrls.push(url);
 
-                    setImages(prev => prev.map((img, idx) => 
-                        idx === imageIndex 
+                    setImages(prev => prev.map((img, idx) =>
+                        idx === imageIndex
                             ? { ...img, uploaded: true, url }
                             : img
                     ));
                     setUploadProgress(prev => ({ ...prev, [imageIndex]: 100 }));
-                } catch (err: any) {
+                } catch (err: unknown) {
                     console.error('Error uploading image:', err);
-                    setImages(prev => prev.map((img, idx) => 
-                        idx === imageIndex 
-                            ? { ...img, error: err.message || 'Erro ao fazer upload' }
+                    setImages(prev => prev.map((img, idx) =>
+                        idx === imageIndex
+                            ? { ...img, error: (err as Error).message || 'Erro ao fazer upload' }
                             : img
                     ));
                 }
@@ -194,12 +173,10 @@ export function ImageUploader({
             setUploading(false);
         }
 
-        // Reset input
         e.target.value = '';
     };
 
     const handleRemoveImage = (index: number) => {
-        // Revoke object URL to free memory
         if (images[index]?.preview) {
             URL.revokeObjectURL(images[index].preview);
         }
@@ -228,7 +205,6 @@ export function ImageUploader({
                     </div>
                 )}
 
-                {/* Image Preview Grid */}
                 {images.length > 0 && (
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
                         {images.map((imageData, index) => (
@@ -238,7 +214,6 @@ export function ImageUploader({
                                     alt={`Preview ${index + 1}`}
                                     className="w-full h-full object-cover"
                                 />
-                                {/* Upload Status Overlay */}
                                 {uploading && uploadProgress[index] !== undefined && uploadProgress[index] < 100 && (
                                     <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
                                         <div className="text-center">
@@ -275,7 +250,6 @@ export function ImageUploader({
                     </div>
                 )}
 
-                {/* Upload Button */}
                 {canAddMore && (
                     <label className={cn(
                         "flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-lg cursor-pointer bg-muted/20 hover:bg-muted/30 transition-colors",
@@ -313,4 +287,3 @@ export function ImageUploader({
         </div>
     );
 }
-

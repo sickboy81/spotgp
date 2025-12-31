@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { DollarSign, TrendingUp, TrendingDown, Calendar, Download, Search, Filter, Loader2, CreditCard, Wallet } from 'lucide-react';
+import { TrendingUp, TrendingDown, Calendar, Download, Search, Loader2, CreditCard } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { supabase } from '@/lib/supabase';
+import { pb } from '@/lib/pocketbase';
 
 interface Transaction {
     id: string;
@@ -14,62 +14,93 @@ interface Transaction {
     description: string;
     created_at: string;
     payment_method?: string;
+    expand?: {
+        user_id?: {
+            display_name?: string;
+            username?: string;
+        }
+    }
 }
+
+type DateRange = 'today' | 'week' | 'month' | 'all';
+type FilterStatus = 'all' | 'pending' | 'completed' | 'failed' | 'refunded';
 
 export default function FinancialManagement() {
     const [transactions, setTransactions] = useState<Transaction[]>([]);
     const [loading, setLoading] = useState(true);
-    const [dateRange, setDateRange] = useState<'today' | 'week' | 'month' | 'all'>('month');
-    const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'completed' | 'failed' | 'refunded'>('all');
+    const [dateRange, setDateRange] = useState<DateRange>('month');
+    const [filterStatus, setFilterStatus] = useState<FilterStatus>('all');
     const [searchTerm, setSearchTerm] = useState('');
 
     useEffect(() => {
+        const getDateFilter = (): Date | null => {
+            const now = new Date();
+            now.setHours(0, 0, 0, 0); // Start of today
+
+            switch (dateRange) {
+                case 'today':
+                    return now;
+                case 'week': {
+                    const weekAgo = new Date(now);
+                    weekAgo.setDate(now.getDate() - 7);
+                    return weekAgo;
+                }
+                case 'month':
+                    return new Date(now.getFullYear(), now.getMonth(), 1);
+                default:
+                    return null;
+            }
+        };
+
+        const loadTransactions = async () => {
+            setLoading(true);
+            try {
+                // Build filter string for PocketBase
+                const filters: string[] = [];
+
+                if (filterStatus !== 'all') {
+                    filters.push(`status = "${filterStatus}"`);
+                }
+
+                const dateFilter = getDateFilter();
+                if (dateFilter) {
+                    filters.push(`created >= "${dateFilter.toISOString()}"`);
+                }
+
+                const filterString = filters.length > 0 ? filters.join(' && ') : '';
+
+                // Attempt to fetch from 'transactions' collection
+                const result = await pb.collection('transactions').getList<Transaction>(1, 100, {
+                    sort: '-created',
+                    filter: filterString,
+                    expand: 'user_id',
+                });
+
+                const mappedTransactions = result.items.map(t => ({
+                    ...t,
+                    user_name: t.expand?.user_id?.display_name || t.expand?.user_id?.username || 'Unknown User'
+                }));
+
+                setTransactions(mappedTransactions);
+            } catch (err) {
+                console.warn('Error loading transactions (collection might not exist):', err);
+                setTransactions([]); // Fallback to empty
+            } finally {
+                setLoading(false);
+            }
+        };
+
         loadTransactions();
     }, [dateRange, filterStatus]);
 
-    const loadTransactions = async () => {
-        setLoading(true);
-        try {
-            // TODO: Replace with actual transactions table query
-            // For now, using mock data structure
-            const mockTransactions: Transaction[] = [];
-            
-            setTransactions(mockTransactions);
-        } catch (err) {
-            console.error('Error loading transactions:', err);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const getDateFilter = () => {
-        const now = new Date();
-        switch (dateRange) {
-            case 'today':
-                return new Date(now.getFullYear(), now.getMonth(), now.getDate());
-            case 'week':
-                const weekAgo = new Date(now);
-                weekAgo.setDate(now.getDate() - 7);
-                return weekAgo;
-            case 'month':
-                return new Date(now.getFullYear(), now.getMonth(), 1);
-            default:
-                return null;
-        }
-    };
-
     const filteredTransactions = transactions.filter(transaction => {
-        const matchesSearch = 
-            transaction.user_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            transaction.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            transaction.id.toLowerCase().includes(searchTerm.toLowerCase());
-        
-        const matchesStatus = filterStatus === 'all' || transaction.status === filterStatus;
-
-        const dateFilter = getDateFilter();
-        const matchesDate = !dateFilter || new Date(transaction.created_at) >= dateFilter;
-
-        return matchesSearch && matchesStatus && matchesDate;
+        if (!searchTerm) return true;
+        const lowerSearch = searchTerm.toLowerCase();
+        return (
+            transaction.user_name?.toLowerCase().includes(lowerSearch) ||
+            transaction.description.toLowerCase().includes(lowerSearch) ||
+            transaction.id.toLowerCase().includes(lowerSearch)
+        );
     });
 
     const totalRevenue = transactions
@@ -185,8 +216,9 @@ export default function FinancialManagement() {
                 <div className="flex gap-2">
                     <select
                         value={dateRange}
-                        onChange={(e) => setDateRange(e.target.value as any)}
+                        onChange={(e) => setDateRange(e.target.value as DateRange)}
                         className="px-4 py-2 bg-background border border-input rounded-lg focus:ring-2 focus:ring-primary outline-none"
+                        aria-label="Período"
                     >
                         <option value="today">Hoje</option>
                         <option value="week">Última semana</option>
@@ -195,8 +227,9 @@ export default function FinancialManagement() {
                     </select>
                     <select
                         value={filterStatus}
-                        onChange={(e) => setFilterStatus(e.target.value as any)}
+                        onChange={(e) => setFilterStatus(e.target.value as FilterStatus)}
                         className="px-4 py-2 bg-background border border-input rounded-lg focus:ring-2 focus:ring-primary outline-none"
+                        aria-label="Status"
                     >
                         <option value="all">Todos os status</option>
                         <option value="pending">Pendente</option>
@@ -289,5 +322,3 @@ export default function FinancialManagement() {
         </div>
     );
 }
-
-

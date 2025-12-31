@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Ticket, Plus, Edit, Trash2, Copy, CheckCircle, XCircle, Calendar, Percent, DollarSign, Gift, Loader2, Search } from 'lucide-react';
+import { Ticket, Plus, Edit, Trash2, Copy, CheckCircle, XCircle, Percent, DollarSign, Gift, Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { supabase } from '@/lib/supabase';
+import { pb } from '@/lib/pocketbase';
 
 interface Coupon {
     id: string;
@@ -43,12 +43,15 @@ export default function CouponsManagement() {
     }, []);
 
     const loadCoupons = async () => {
+        setLoading(true);
         try {
-            // TODO: Load from database
-            const mockCoupons: Coupon[] = [];
-            setCoupons(mockCoupons);
+            const result = await pb.collection('coupons').getList<Coupon>(1, 50, {
+                sort: '-created',
+            });
+            setCoupons(result.items);
         } catch (err) {
-            console.error('Error loading coupons:', err);
+            console.warn('Error loading coupons (users might not see this if collection missing):', err);
+            setCoupons([]);
         } finally {
             setLoading(false);
         }
@@ -63,33 +66,51 @@ export default function CouponsManagement() {
         setCouponForm({ ...couponForm, code });
     };
 
-    const handleSaveCoupon = () => {
+    const handleSaveCoupon = async () => {
         if (!couponForm.code.trim()) {
             alert('Código do cupom é obrigatório');
             return;
         }
 
-        if (editingCoupon) {
-            // Update existing coupon
-            setCoupons(coupons.map(c => c.id === editingCoupon.id ? { ...editingCoupon, ...couponForm } as Coupon : c));
-        } else {
-            // Check if code already exists
-            if (coupons.some(c => c.code.toLowerCase() === couponForm.code.toLowerCase())) {
-                alert('Este código de cupom já existe');
-                return;
+        try {
+            const data = {
+                ...couponForm,
+                // Ensure dates are ISO strings if needed, though PocketBase accepts strings usually
+                valid_from: new Date(couponForm.valid_from).toISOString(),
+                valid_until: couponForm.valid_until ? new Date(couponForm.valid_until).toISOString() : null,
+            };
+
+            if (editingCoupon) {
+                // Update existing coupon
+                await pb.collection('coupons').update(editingCoupon.id, data);
+                setCoupons(coupons.map(c => c.id === editingCoupon.id ? { ...editingCoupon, ...data } as Coupon : c));
+                alert('Cupom atualizado com sucesso!');
+            } else {
+                // Create new coupon
+                // Check local duplicate mainly for UX, DB will constraints too
+                if (coupons.some(c => c.code.toLowerCase() === couponForm.code.toLowerCase())) {
+                    alert('Este código de cupom já existe');
+                    return;
+                }
+
+                const newCoupon = await pb.collection('coupons').create({
+                    ...data,
+                    used_count: 0,
+                });
+                setCoupons([newCoupon as unknown as Coupon, ...coupons]);
+                alert('Cupom criado com sucesso!');
             }
 
-            // Create new coupon
-            const newCoupon: Coupon = {
-                id: `coupon_${Date.now()}`,
-                ...couponForm,
-                used_count: 0,
-                created_at: new Date().toISOString(),
-            };
-            setCoupons([...coupons, newCoupon]);
+            setShowForm(false);
+            setEditingCoupon(null);
+            resetForm();
+        } catch (err: any) {
+            console.error('Error saving coupon:', err);
+            alert(`Erro ao salvar cupom: ${err.message || err}`);
         }
-        setShowForm(false);
-        setEditingCoupon(null);
+    };
+
+    const resetForm = () => {
         setCouponForm({
             code: '',
             type: 'percentage',
@@ -102,7 +123,6 @@ export default function CouponsManagement() {
             applicable_plans: [],
             min_purchase_amount: null,
         });
-        // TODO: Save to database
     };
 
     const handleEditCoupon = (coupon: Coupon) => {
@@ -122,10 +142,16 @@ export default function CouponsManagement() {
         setShowForm(true);
     };
 
-    const handleDeleteCoupon = (couponId: string) => {
+    const handleDeleteCoupon = async (couponId: string) => {
+        // eslint-disable-next-line no-restricted-globals
         if (confirm('Tem certeza que deseja deletar este cupom?')) {
-            setCoupons(coupons.filter(c => c.id !== couponId));
-            // TODO: Delete from database
+            try {
+                await pb.collection('coupons').delete(couponId);
+                setCoupons(coupons.filter(c => c.id !== couponId));
+            } catch (err: any) {
+                console.error('Error deleting coupon:', err);
+                alert(`Erro ao deletar cupom: ${err.message}`);
+            }
         }
     };
 
@@ -134,9 +160,15 @@ export default function CouponsManagement() {
         alert('Código copiado para a área de transferência!');
     };
 
-    const handleToggleActive = (couponId: string) => {
-        setCoupons(coupons.map(c => c.id === couponId ? { ...c, is_active: !c.is_active } : c));
-        // TODO: Update in database
+    const handleToggleActive = async (coupon: Coupon) => {
+        try {
+            const newState = !coupon.is_active;
+            await pb.collection('coupons').update(coupon.id, { is_active: newState });
+            setCoupons(coupons.map(c => c.id === coupon.id ? { ...c, is_active: newState } : c));
+        } catch (err: any) {
+            console.error('Error updating coupon:', err);
+            alert(`Erro ao atualizar status: ${err.message}`);
+        }
     };
 
     const filteredCoupons = coupons.filter(coupon =>
@@ -169,18 +201,7 @@ export default function CouponsManagement() {
                 <button
                     onClick={() => {
                         setEditingCoupon(null);
-                        setCouponForm({
-                            code: '',
-                            type: 'percentage',
-                            value: 10,
-                            description: '',
-                            max_uses: null,
-                            valid_from: new Date().toISOString().split('T')[0],
-                            valid_until: null,
-                            is_active: true,
-                            applicable_plans: [],
-                            min_purchase_amount: null,
-                        });
+                        resetForm();
                         setShowForm(true);
                     }}
                     className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
@@ -239,6 +260,7 @@ export default function CouponsManagement() {
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="w-full pl-10 pr-4 py-2 bg-background border border-input rounded-lg focus:ring-2 focus:ring-primary outline-none"
+                    aria-label="Buscar cupons"
                 />
             </div>
 
@@ -259,11 +281,13 @@ export default function CouponsManagement() {
                                         onChange={(e) => setCouponForm({ ...couponForm, code: e.target.value.toUpperCase() })}
                                         className="flex-1 px-4 py-2 bg-background border border-input rounded-lg focus:ring-2 focus:ring-primary outline-none"
                                         placeholder="Ex: DESCONTO10"
+                                        aria-label="Código do cupom"
                                     />
                                     <button
                                         onClick={generateCouponCode}
                                         className="px-4 py-2 bg-muted text-muted-foreground rounded-lg hover:bg-muted/80 transition-colors"
                                         title="Gerar código aleatório"
+                                        aria-label="Gerar código aleatório"
                                     >
                                         <Ticket className="w-4 h-4" />
                                     </button>
@@ -273,8 +297,9 @@ export default function CouponsManagement() {
                                 <label className="block text-sm font-medium mb-1">Tipo</label>
                                 <select
                                     value={couponForm.type}
-                                    onChange={(e) => setCouponForm({ ...couponForm, type: e.target.value as any })}
+                                    onChange={(e) => setCouponForm({ ...couponForm, type: e.target.value as 'percentage' | 'fixed' | 'free_trial' })}
                                     className="w-full px-4 py-2 bg-background border border-input rounded-lg focus:ring-2 focus:ring-primary outline-none"
+                                    aria-label="Tipo de cupom"
                                 >
                                     <option value="percentage">Percentual (%)</option>
                                     <option value="fixed">Valor Fixo (R$)</option>
@@ -294,6 +319,7 @@ export default function CouponsManagement() {
                                     onChange={(e) => setCouponForm({ ...couponForm, value: parseFloat(e.target.value) || 0 })}
                                     className="w-full px-4 py-2 bg-background border border-input rounded-lg focus:ring-2 focus:ring-primary outline-none"
                                     max={couponForm.type === 'percentage' ? 100 : undefined}
+                                    aria-label="Valor do desconto"
                                 />
                             </div>
                             <div>
@@ -304,6 +330,7 @@ export default function CouponsManagement() {
                                     onChange={(e) => setCouponForm({ ...couponForm, max_uses: e.target.value ? parseInt(e.target.value) : null })}
                                     className="w-full px-4 py-2 bg-background border border-input rounded-lg focus:ring-2 focus:ring-primary outline-none"
                                     placeholder="Deixe vazio para ilimitado"
+                                    aria-label="Máximo de usos"
                                 />
                             </div>
                             <div>
@@ -313,6 +340,7 @@ export default function CouponsManagement() {
                                     value={couponForm.valid_from}
                                     onChange={(e) => setCouponForm({ ...couponForm, valid_from: e.target.value })}
                                     className="w-full px-4 py-2 bg-background border border-input rounded-lg focus:ring-2 focus:ring-primary outline-none"
+                                    aria-label="Válido a partir de"
                                 />
                             </div>
                             <div>
@@ -322,6 +350,7 @@ export default function CouponsManagement() {
                                     value={couponForm.valid_until || ''}
                                     onChange={(e) => setCouponForm({ ...couponForm, valid_until: e.target.value || null })}
                                     className="w-full px-4 py-2 bg-background border border-input rounded-lg focus:ring-2 focus:ring-primary outline-none"
+                                    aria-label="Válido até"
                                 />
                             </div>
                         </div>
@@ -332,6 +361,7 @@ export default function CouponsManagement() {
                                 onChange={(e) => setCouponForm({ ...couponForm, description: e.target.value })}
                                 className="w-full px-4 py-2 bg-background border border-input rounded-lg focus:ring-2 focus:ring-primary outline-none h-24"
                                 placeholder="Descrição do cupom"
+                                aria-label="Descrição do cupom"
                             />
                         </div>
                         <div className="flex items-center gap-2">
@@ -340,6 +370,7 @@ export default function CouponsManagement() {
                                 checked={couponForm.is_active}
                                 onChange={(e) => setCouponForm({ ...couponForm, is_active: e.target.checked })}
                                 className="w-4 h-4"
+                                aria-label="Cupom ativo"
                             />
                             <label className="text-sm">Cupom ativo</label>
                         </div>
@@ -378,6 +409,7 @@ export default function CouponsManagement() {
                                             onClick={() => handleCopyCode(coupon.code)}
                                             className="p-1 text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors"
                                             title="Copiar código"
+                                            aria-label="Copiar código"
                                         >
                                             <Copy className="w-4 h-4" />
                                         </button>
@@ -386,7 +418,7 @@ export default function CouponsManagement() {
                                 </div>
                                 <div className="flex gap-2">
                                     <button
-                                        onClick={() => handleToggleActive(coupon.id)}
+                                        onClick={() => handleToggleActive(coupon)}
                                         className={cn(
                                             "p-2 rounded-lg transition-colors",
                                             coupon.is_active
@@ -394,18 +426,23 @@ export default function CouponsManagement() {
                                                 : "text-muted-foreground hover:bg-muted"
                                         )}
                                         title={coupon.is_active ? "Desativar" : "Ativar"}
+                                        aria-label={coupon.is_active ? "Desativar cupom" : "Ativar cupom"}
                                     >
                                         {coupon.is_active ? <CheckCircle className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
                                     </button>
                                     <button
                                         onClick={() => handleEditCoupon(coupon)}
                                         className="p-2 text-primary hover:bg-primary/10 rounded transition-colors"
+                                        title="Editar Cupom"
+                                        aria-label="Editar Cupom"
                                     >
                                         <Edit className="w-4 h-4" />
                                     </button>
                                     <button
                                         onClick={() => handleDeleteCoupon(coupon.id)}
                                         className="p-2 text-destructive hover:bg-destructive/10 rounded transition-colors"
+                                        title="Excluir Cupom"
+                                        aria-label="Excluir Cupom"
                                     >
                                         <Trash2 className="w-4 h-4" />
                                     </button>
@@ -449,5 +486,3 @@ export default function CouponsManagement() {
         </div>
     );
 }
-
-

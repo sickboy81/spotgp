@@ -1,4 +1,4 @@
-import { X, Download, Smartphone, Share2, Plus } from 'lucide-react';
+import { X, Download, Share2 } from 'lucide-react';
 import { usePWAInstall } from '@/hooks/usePWAInstall';
 import { cn } from '@/lib/utils';
 

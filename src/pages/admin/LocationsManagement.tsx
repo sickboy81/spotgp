@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { MapPin, Plus, Edit, Trash2, Search, Loader2 } from 'lucide-react';
+import { MapPin, Plus, Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { BRAZILIAN_CITIES } from '@/lib/constants/brazilian-cities';
 import { NEIGHBORHOODS_BY_CITY } from '@/lib/constants/neighborhoods';
@@ -10,21 +10,21 @@ export default function LocationsManagement() {
     const [selectedCity, setSelectedCity] = useState<string>('');
     const [showAddCity, setShowAddCity] = useState(false);
     const [showAddNeighborhood, setShowAddNeighborhood] = useState(false);
-    
+
     const [newCity, setNewCity] = useState({
         name: '',
         state: '',
         latitude: '',
         longitude: '',
     });
-    
+
     const [newNeighborhood, setNewNeighborhood] = useState({
         name: '',
         city: '',
     });
 
     const states = Array.from(new Set(Object.values(BRAZILIAN_CITIES).map(c => c.state))).sort();
-    
+
     const citiesByState = selectedState
         ? Object.entries(BRAZILIAN_CITIES)
             .filter(([, city]) => city.state === selectedState)
@@ -39,7 +39,7 @@ export default function LocationsManagement() {
     const filteredCities = Object.entries(BRAZILIAN_CITIES)
         .filter(([name, city]) => {
             const matchesSearch = name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                                 city.state.toLowerCase().includes(searchTerm.toLowerCase());
+                city.state.toLowerCase().includes(searchTerm.toLowerCase());
             const matchesState = !selectedState || city.state === selectedState;
             return matchesSearch && matchesState;
         })
@@ -131,6 +131,7 @@ export default function LocationsManagement() {
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                             className="w-full pl-10 pr-4 py-2 bg-background border border-input rounded-lg focus:ring-2 focus:ring-primary outline-none"
+                            aria-label="Buscar cidade"
                         />
                     </div>
                     <select
@@ -140,6 +141,7 @@ export default function LocationsManagement() {
                             setSelectedCity('');
                         }}
                         className="px-4 py-2 bg-background border border-input rounded-lg focus:ring-2 focus:ring-primary outline-none"
+                        aria-label="Filtrar por estado"
                     >
                         <option value="">Todos os estados</option>
                         {states.map(state => (
@@ -160,6 +162,7 @@ export default function LocationsManagement() {
                                     value={newCity.name}
                                     onChange={(e) => setNewCity({ ...newCity, name: e.target.value })}
                                     className="w-full px-4 py-2 bg-background border border-input rounded-lg focus:ring-2 focus:ring-primary outline-none"
+                                    aria-label="Nome da cidade"
                                 />
                             </div>
                             <div>
@@ -168,6 +171,7 @@ export default function LocationsManagement() {
                                     value={newCity.state}
                                     onChange={(e) => setNewCity({ ...newCity, state: e.target.value })}
                                     className="w-full px-4 py-2 bg-background border border-input rounded-lg focus:ring-2 focus:ring-primary outline-none"
+                                    aria-label="Estado da cidade"
                                 >
                                     <option value="">Selecione...</option>
                                     {states.map(state => (
@@ -184,6 +188,7 @@ export default function LocationsManagement() {
                                     onChange={(e) => setNewCity({ ...newCity, latitude: e.target.value })}
                                     className="w-full px-4 py-2 bg-background border border-input rounded-lg focus:ring-2 focus:ring-primary outline-none"
                                     placeholder="Ex: -23.5505"
+                                    aria-label="Latitude"
                                 />
                             </div>
                             <div>
@@ -195,6 +200,7 @@ export default function LocationsManagement() {
                                     onChange={(e) => setNewCity({ ...newCity, longitude: e.target.value })}
                                     className="w-full px-4 py-2 bg-background border border-input rounded-lg focus:ring-2 focus:ring-primary outline-none"
                                     placeholder="Ex: -46.6333"
+                                    aria-label="Longitude"
                                 />
                             </div>
                         </div>
@@ -274,6 +280,7 @@ export default function LocationsManagement() {
                         }}
                         className="w-full md:w-auto px-4 py-2 bg-background border border-input rounded-lg focus:ring-2 focus:ring-primary outline-none"
                         disabled={!selectedState}
+                        aria-label="Selecionar cidade para ver bairros"
                     >
                         <option value="">Selecione uma cidade...</option>
                         {citiesByState.map(city => (

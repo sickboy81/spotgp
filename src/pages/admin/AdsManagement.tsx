@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Star, TrendingUp, Eye, DollarSign, Search, Plus, Edit, Trash2, Loader2, Sparkles } from 'lucide-react';
+import { Star, TrendingUp, Eye, Search, Loader2, Sparkles } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { cn } from '@/lib/utils';
-import { supabase } from '@/lib/supabase';
+import { pb } from '@/lib/pocketbase';
 
 interface Ad {
     id: string;
@@ -31,25 +31,23 @@ export default function AdsManagement() {
     const loadAds = async () => {
         setLoading(true);
         try {
-            const { data, error } = await supabase
-                .from('profiles')
-                .select('id, display_name, ad_id, views, clicks')
-                .eq('role', 'advertiser')
-                .order('created_at', { ascending: false });
-
-            if (error) throw error;
+            const profiles = await pb.collection('profiles').getFullList({
+                filter: 'role = "advertiser"',
+                sort: '-created',
+                fields: 'id,display_name,ad_id,created' // views and clicks might need to be fetched separately if they aren't on profile
+            });
 
             // Map profiles to ads (in a real app, you'd have an ads table)
-            const adsData: Ad[] = (data || []).map(profile => ({
+            const adsData: Ad[] = profiles.map(profile => ({
                 id: profile.id,
                 profile_id: profile.id,
                 display_name: profile.display_name || 'Sem nome',
                 ad_id: profile.ad_id || '',
-                is_featured: false, // TODO: Get from ads table
-                is_sponsored: false, // TODO: Get from ads table
+                is_featured: false, // TODO: Get from ads table or profile field
+                is_sponsored: false, // TODO: Get from ads table or profile field
                 priority: 0,
-                views: (profile as any).views || 0,
-                clicks: (profile as any).clicks || 0,
+                views: 0, // TODO: Fetch from new analytics collection or relation
+                clicks: 0, // TODO: Fetch from new analytics collection or relation
             }));
 
             setAds(adsData);
@@ -60,7 +58,7 @@ export default function AdsManagement() {
         }
     };
 
-    const handleToggleFeatured = async (adId: string, currentFeatured: boolean) => {
+    const handleToggleFeatured = async (_adId: string, currentFeatured: boolean) => {
         try {
             // TODO: Update in ads table
             alert(`Anúncio ${currentFeatured ? 'removido dos' : 'adicionado aos'} destaques`);
@@ -71,7 +69,7 @@ export default function AdsManagement() {
         }
     };
 
-    const handleToggleSponsored = async (adId: string, currentSponsored: boolean) => {
+    const handleToggleSponsored = async (_adId: string, currentSponsored: boolean) => {
         try {
             // TODO: Update in ads table
             alert(`Anúncio ${currentSponsored ? 'removido dos' : 'adicionado aos'} patrocinados`);
@@ -83,10 +81,10 @@ export default function AdsManagement() {
     };
 
     const filteredAds = ads.filter(ad => {
-        const matchesSearch = 
+        const matchesSearch =
             ad.display_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
             ad.ad_id?.toLowerCase().includes(searchTerm.toLowerCase());
-        
+
         const matchesFilter =
             filterType === 'all' ||
             (filterType === 'featured' && ad.is_featured) ||

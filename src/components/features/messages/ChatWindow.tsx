@@ -11,7 +11,7 @@ interface ChatWindowProps {
     onMessageSent?: () => void;
 }
 
-export function ChatWindow({ conversationId, otherUserId, otherUserName, onMessageSent }: ChatWindowProps) {
+export function ChatWindow({ conversationId, onMessageSent }: ChatWindowProps) {
     const { user } = useAuth();
     const [messages, setMessages] = useState<MessageWithSender[]>([]);
     const [loading, setLoading] = useState(true);
@@ -23,7 +23,7 @@ export function ChatWindow({ conversationId, otherUserId, otherUserName, onMessa
     useEffect(() => {
         loadMessages();
         markAsRead();
-        
+
         // Poll for new messages every 3 seconds
         const interval = setInterval(() => {
             loadMessages();
@@ -100,7 +100,7 @@ export function ChatWindow({ conversationId, otherUserId, otherUserName, onMessa
     return (
         <div className="flex flex-col h-full">
             {/* Messages Area */}
-            <div 
+            <div
                 ref={messagesContainerRef}
                 className="flex-1 overflow-y-auto p-4 space-y-4"
             >
@@ -130,7 +130,7 @@ export function ChatWindow({ conversationId, otherUserId, otherUserName, onMessa
                                         "text-xs mt-1",
                                         isOwn ? "text-primary-foreground/70" : "text-muted-foreground"
                                     )}>
-                                        {formatTime(message.created_at)}
+                                        {formatTime(message.created)}
                                     </p>
                                 </div>
                             </div>

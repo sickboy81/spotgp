@@ -1,13 +1,10 @@
-import { useState, useMemo, useEffect } from 'react';
-import { VideoUploader } from '@/components/features/media/VideoUploader';
-import { BRAZILIAN_CITIES } from '@/lib/constants/brazilian-cities';
-import { GENERAL_SERVICES, SPECIAL_SERVICES } from '@/lib/constants/services';
-import { HAIR_COLORS, BODY_TYPES, ETHNICITIES, PAYMENT_METHODS, GENDERS, SERVICE_LOCATIONS } from '@/lib/constants/profile-options';
+import { useState, useEffect } from 'react';
+import { GENDERS, SERVICE_LOCATIONS } from '@/lib/constants/profile-options';
 import { ADVERTISER_CATEGORIES } from '@/lib/constants/categories';
-import { MASSAGE_TYPES, OTHER_SERVICES, HAPPY_ENDING, FACILITIES, SERVICE_TO } from '@/lib/constants/massage-options';
+import { SERVICE_TO } from '@/lib/constants/massage-options';
 import { geocodeAddress } from '@/lib/services/geocoding';
-import { MapPin, ChevronDown, Sparkles, DollarSign, User, Ruler, Scale, Palette, Users, Wallet, Home, Video, CheckCircle, XCircle, Loader2, Tag, Heart, MessageSquare, Phone, FileText, Clock, Camera, Play, Volume2, AlertTriangle, Minus } from 'lucide-react';
-import { cn, normalizeString } from '@/lib/utils';
+import { MapPin, DollarSign, Home, CheckCircle, XCircle, Loader2, Phone, FileText, Clock, Camera, Play, Volume2, AlertTriangle, Users } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import { loadProfile, saveProfile, ProfileData } from '@/lib/api/profile';
 import { PhotoGrid } from '@/components/features/media/PhotoGrid';
@@ -49,7 +46,7 @@ export default function EditProfile() {
         ethnicity: [],
         services: [],
         paymentMethods: [],
-        hasPlace: null,
+        hasPlace: undefined,
         videoCall: false,
         chat_enabled: true,
         schedule_24h: false,
@@ -65,78 +62,39 @@ export default function EditProfile() {
         serviceTo: [],
         serviceLocations: [],
     });
-    
+
     const [photos, setPhotos] = useState<File[]>([]);
     const [videos, setVideos] = useState<File[]>([]);
     const [acceptedTerms, setAcceptedTerms] = useState(false);
     const [acceptedAge, setAcceptedAge] = useState(false);
 
-    // City Autocomplete State
-    const [citySearch, setCitySearch] = useState('');
-    const [isCityListOpen, setIsCityListOpen] = useState(false);
-
     // Derived Data
-    const cities = useMemo(() => Object.keys(BRAZILIAN_CITIES).sort(), []);
-    const states = useMemo(() => Array.from(new Set(Object.values(BRAZILIAN_CITIES).map(c => c.state))).sort(), []);
-
-    // Filter cities for autocomplete (ignoring accents)
-    const filteredCities = useMemo(() => {
-        if (!citySearch) return [];
-        const normalizedSearch = normalizeString(citySearch);
-        return cities.filter(city => normalizeString(city).includes(normalizedSearch));
-    }, [cities, citySearch]);
-
     // Handlers
-    const handleCitySelect = (city: string) => {
-        setCitySearch(city);
-        setProfile(prev => ({
-            ...prev,
-            city,
-            state: BRAZILIAN_CITIES[city].state // Auto-set state if known city
-        }));
-        setIsCityListOpen(false);
-    };
-
-    const handleCityChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const val = e.target.value;
-        setCitySearch(val);
-        setProfile(prev => ({ ...prev, city: val }));
-        setIsCityListOpen(true);
-    };
 
     // Load profile on mount
     useEffect(() => {
+        const loadProfileData = async () => {
+            if (!user?.id) return;
+            setLoading(true);
+            try {
+                const data = await loadProfile(user.id);
+                if (data) {
+                    setProfile(data);
+                }
+            } catch (error) {
+                console.error('Error loading profile:', error);
+            } finally {
+                setLoading(false);
+            }
+        };
+
         if (user?.id) {
             loadProfileData();
         }
     }, [user?.id]);
 
-    const loadProfileData = async () => {
-        if (!user?.id) return;
-        setLoading(true);
-        try {
-            const data = await loadProfile(user.id);
-            if (data) {
-                setProfile(data);
-                if (data.city) setCitySearch(data.city);
-            }
-        } catch (error) {
-            console.error('Error loading profile:', error);
-        } finally {
-            setLoading(false);
-        }
-    };
 
-    const toggleService = (service: string) => {
-        setProfile(prev => {
-            const currentServices = prev.services || [];
-            if (currentServices.includes(service)) {
-                return { ...prev, services: currentServices.filter(s => s !== service) };
-            } else {
-                return { ...prev, services: [...currentServices, service] };
-            }
-        });
-    };
+
 
     const toggleArrayItem = (field: 'hairColor' | 'bodyType' | 'ethnicity' | 'paymentMethods' | 'massageTypes' | 'otherServices' | 'happyEnding' | 'facilities' | 'serviceTo' | 'serviceLocations', value: string) => {
         setProfile(prev => {
@@ -176,7 +134,7 @@ export default function EditProfile() {
 
         try {
             // Geocode address if city is provided
-            let updatedProfile = { ...profile };
+            const updatedProfile = { ...profile };
             if (profile.city && profile.state) {
                 try {
                     const coords = await geocodeAddress(
@@ -193,7 +151,7 @@ export default function EditProfile() {
                     // Continue without precise coordinates - will fallback to city coords
                 }
             }
-            
+
             const result = await saveProfile(user.id, updatedProfile);
             if (result.success) {
                 setProfile(updatedProfile); // Update profile state with geocoded coordinates
@@ -202,8 +160,8 @@ export default function EditProfile() {
             } else {
                 setSaveStatus({ type: 'error', message: result.error || 'Erro ao salvar perfil' });
             }
-        } catch (error: any) {
-            setSaveStatus({ type: 'error', message: error.message || 'Erro ao salvar perfil' });
+        } catch (error: unknown) {
+            setSaveStatus({ type: 'error', message: (error as Error).message || 'Erro ao salvar perfil' });
         } finally {
             setSaving(false);
         }

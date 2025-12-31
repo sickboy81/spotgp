@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { BarChart, Eye, MessageSquare, TrendingUp, Loader2, Heart, Power, Clock } from 'lucide-react';
+import { useEffect, useState, useCallback } from 'react';
+import { TrendingUp, Eye, Loader2, BarChart, Power, Clock, Heart } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useAuth } from '@/hooks/useAuth';
 import { getProfileAnalytics, AnalyticsData } from '@/lib/api/analytics';
@@ -14,14 +14,7 @@ export default function Overview() {
     const [onlineStatusLoading, setOnlineStatusLoading] = useState(false);
     const [selectedDuration, setSelectedDuration] = useState<number | null>(null);
 
-    useEffect(() => {
-        if (user?.id) {
-            loadAnalytics();
-            loadProfileData();
-        }
-    }, [user?.id, timeRange]);
-
-    const loadProfileData = async () => {
+    const loadProfileData = useCallback(async () => {
         if (!user?.id) return;
         try {
             const profileData = await loadProfile(user.id);
@@ -29,28 +22,35 @@ export default function Overview() {
         } catch (error) {
             console.error('Error loading profile:', error);
         }
-    };
+    }, [user?.id]);
 
-    const loadAnalytics = async () => {
-        if (!user?.id) return;
-        
-        setLoading(true);
-        try {
-            const data = await getProfileAnalytics(user.id, timeRange);
-            setAnalytics(data);
-        } catch (error) {
-            console.error('Error loading analytics:', error);
-            // Set default values on error
-            setAnalytics({
-                views: { total: 0, unique: 0, today: 0, thisWeek: 0, thisMonth: 0, byDevice: {}, byDate: [] },
-                clicks: { total: 0, today: 0, thisWeek: 0, thisMonth: 0, byType: {} },
-                favorites: { total: 0 },
-                conversionRate: 0,
-            });
-        } finally {
-            setLoading(false);
+    useEffect(() => {
+        const loadAnalytics = async () => {
+            if (!user?.id) return;
+
+            setLoading(true);
+            try {
+                const data = await getProfileAnalytics(user.id, timeRange);
+                setAnalytics(data);
+            } catch (error) {
+                console.error('Error loading analytics:', error);
+                // Set default values on error
+                setAnalytics({
+                    views: { total: 0, unique: 0, today: 0, thisWeek: 0, thisMonth: 0, byDevice: {}, byDate: [] },
+                    clicks: { total: 0, today: 0, thisWeek: 0, thisMonth: 0, byType: {} },
+                    favorites: { total: 0 },
+                    conversionRate: 0,
+                });
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        if (user?.id) {
+            loadAnalytics();
+            loadProfileData();
         }
-    };
+    }, [user?.id, timeRange, loadProfileData]);
 
     const formatNumber = (num: number) => {
         if (num >= 1000) {
@@ -62,12 +62,12 @@ export default function Overview() {
     const calculateChange = (current: number, previous: number) => {
         if (previous === 0) return current > 0 ? '+100%' : '0%';
         const change = ((current - previous) / previous) * 100;
-        return `${change >= 0 ? '+' : ''}${Math.round(change)}%`;
+        return `${change >= 0 ? '+' : ''}${Math.round(change)}% `;
     };
 
     const handleToggleOnline = async (isOnline: boolean) => {
         if (!user?.id) return;
-        
+
         setOnlineStatusLoading(true);
         try {
             const result = await updateOnlineStatus(user.id, isOnline, selectedDuration);
@@ -86,22 +86,22 @@ export default function Overview() {
     };
 
     const isCurrentlyOnline = getCurrentOnlineStatus(profile);
-    
+
     const getOnlineUntilText = () => {
         if (!profile?.online_until) return null;
         const until = new Date(profile.online_until);
         const now = new Date();
         if (until <= now) return null;
-        
+
         const diffMs = until.getTime() - now.getTime();
         const diffMins = Math.floor(diffMs / 60000);
         const hours = Math.floor(diffMins / 60);
         const minutes = diffMins % 60;
-        
+
         if (hours > 0) {
-            return `${hours}h ${minutes > 0 ? minutes + 'min' : ''}`;
+            return `${hours}h ${minutes > 0 ? minutes + 'min' : ''} `;
         }
-        return `${minutes}min`;
+        return `${minutes} min`;
     };
 
     const durationOptions = [
@@ -122,31 +122,31 @@ export default function Overview() {
     }
 
     const stats = analytics ? [
-        { 
-            label: 'Total Views', 
-            value: formatNumber(analytics.views.total), 
-            icon: Eye, 
+        {
+            label: 'Total Views',
+            value: formatNumber(analytics.views.total),
+            icon: Eye,
             change: calculateChange(analytics.views.thisMonth, analytics.views.thisWeek),
             subtitle: `${analytics.views.unique} únicas`
         },
-        { 
-            label: 'Cliques em Contato', 
-            value: formatNumber(analytics.clicks.total), 
-            icon: TrendingUp, 
+        {
+            label: 'Cliques em Contato',
+            value: formatNumber(analytics.clicks.total),
+            icon: TrendingUp,
             change: calculateChange(analytics.clicks.thisMonth, analytics.clicks.thisWeek),
             subtitle: `${analytics.conversionRate.toFixed(1)}% conversão`
         },
-        { 
-            label: 'Favoritos', 
-            value: formatNumber(analytics.favorites.total), 
-            icon: Heart, 
+        {
+            label: 'Favoritos',
+            value: formatNumber(analytics.favorites.total),
+            icon: Heart,
             change: '0%',
             subtitle: 'Total de favoritos'
         },
-        { 
-            label: 'Taxa de Conversão', 
-            value: `${analytics.conversionRate.toFixed(1)}%`, 
-            icon: BarChart, 
+        {
+            label: 'Taxa de Conversão',
+            value: `${analytics.conversionRate.toFixed(1)}% `,
+            icon: BarChart,
             change: calculateChange(analytics.clicks.total, analytics.views.total > 0 ? analytics.views.total : 1),
             subtitle: 'Views → Cliques'
         },
@@ -161,8 +161,9 @@ export default function Overview() {
                 </div>
                 <select
                     value={timeRange}
-                    onChange={(e) => setTimeRange(e.target.value as any)}
+                    onChange={(e) => setTimeRange(e.target.value as 'today' | 'week' | 'month' | 'all')}
                     className="bg-background border border-input rounded-md px-4 py-2 text-sm focus:ring-1 focus:ring-primary outline-none"
+                    aria-label="Select Time Range"
                 >
                     <option value="today">Hoje</option>
                     <option value="week">Esta Semana</option>
@@ -196,7 +197,7 @@ export default function Overview() {
                             </p>
                         </div>
                     </div>
-                    
+
                     <div className="flex items-center gap-3 flex-wrap">
                         {/* Duration Selector (only show when turning on) */}
                         {!isCurrentlyOnline && (
@@ -204,6 +205,7 @@ export default function Overview() {
                                 value={selectedDuration || ''}
                                 onChange={(e) => setSelectedDuration(e.target.value ? parseInt(e.target.value) : null)}
                                 className="bg-background border border-input rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-primary outline-none"
+                                aria-label="Select Online Duration"
                             >
                                 <option value="">Sem duração (manual)</option>
                                 {durationOptions.map(opt => (
@@ -211,15 +213,14 @@ export default function Overview() {
                                 ))}
                             </select>
                         )}
-                        
+
                         <button
                             onClick={() => handleToggleOnline(!isCurrentlyOnline)}
                             disabled={onlineStatusLoading}
-                            className={`px-6 py-2.5 rounded-lg font-semibold transition-all flex items-center gap-2 ${
-                                isCurrentlyOnline
-                                    ? 'bg-red-500 hover:bg-red-600 text-white'
-                                    : 'bg-green-500 hover:bg-green-600 text-white'
-                            } ${onlineStatusLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            className={`px-6 py-2.5 rounded-lg font-semibold transition-all flex items-center gap-2 ${isCurrentlyOnline
+                                ? 'bg-red-500 hover:bg-red-600 text-white'
+                                : 'bg-green-500 hover:bg-green-600 text-white'
+                                } ${onlineStatusLoading ? 'opacity-50 cursor-not-allowed' : ''} `}
                         >
                             {onlineStatusLoading ? (
                                 <>
@@ -252,11 +253,10 @@ export default function Overview() {
                                 <stat.icon className="w-5 h-5" />
                             </div>
                             {stat.change !== '0%' && (
-                                <span className={`text-xs font-medium px-2 py-1 rounded-full ${
-                                    stat.change.startsWith('+') 
-                                        ? 'text-green-500 bg-green-500/10' 
-                                        : 'text-red-500 bg-red-500/10'
-                                }`}>
+                                <span className={`text-xs font-medium px-2 py-1 rounded-full ${stat.change.startsWith('+')
+                                    ? 'text-green-500 bg-green-500/10'
+                                    : 'text-red-500 bg-red-500/10'
+                                    }`}>
                                     {stat.change}
                                 </span>
                             )}
@@ -282,9 +282,9 @@ export default function Overview() {
                                     <span className="text-sm capitalize">{device === 'mobile' ? 'Mobile' : device === 'desktop' ? 'Desktop' : device === 'tablet' ? 'Tablet' : 'Desconhecido'}</span>
                                     <div className="flex items-center gap-3">
                                         <div className="w-32 h-2 bg-muted rounded-full overflow-hidden">
-                                            <div 
-                                                className="h-full bg-primary rounded-full"
-                                                style={{ width: `${(count / analytics.views.total) * 100}%` }}
+                                            <div
+                                                className="h-full bg-primary rounded-full w-[var(--progress-width)]"
+                                                style={{ '--progress-width': `${(count / analytics.views.total) * 100}%` } as React.CSSProperties}
                                             />
                                         </div>
                                         <span className="text-sm font-semibold w-12 text-right">{count}</span>
@@ -306,9 +306,9 @@ export default function Overview() {
                                     <span className="text-sm capitalize">{type === 'whatsapp' ? 'WhatsApp' : type === 'telegram' ? 'Telegram' : type === 'instagram' ? 'Instagram' : type === 'twitter' ? 'Twitter' : type === 'phone' ? 'Telefone' : type === 'message' ? 'Mensagem' : type}</span>
                                     <div className="flex items-center gap-3">
                                         <div className="w-32 h-2 bg-muted rounded-full overflow-hidden">
-                                            <div 
-                                                className="h-full bg-green-500 rounded-full"
-                                                style={{ width: `${(count / analytics.clicks.total) * 100}%` }}
+                                            <div
+                                                className="h-full bg-green-500 rounded-full w-[var(--progress-width)]"
+                                                style={{ '--progress-width': `${(count / analytics.clicks.total) * 100}%` } as React.CSSProperties}
                                             />
                                         </div>
                                         <span className="text-sm font-semibold w-12 text-right">{count}</span>

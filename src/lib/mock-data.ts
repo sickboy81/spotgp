@@ -1,8 +1,8 @@
-import { Database } from '@/types/supabase';
+// import { Database } from '@/types/supabase';
 
-type Profile = Database['public']['Tables']['profiles']['Row'] & {
-    media?: Database['public']['Tables']['media']['Row'][];
-};
+// type Profile = Database['public']['Tables']['profiles']['Row'] & {
+//     media?: Database['public']['Tables']['media']['Row'][];
+// };
 
 export const MOCK_PROFILES: any[] = [
     {

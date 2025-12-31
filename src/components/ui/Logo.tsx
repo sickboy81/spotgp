@@ -24,11 +24,10 @@ export function Logo({ className, size = 'md', showText = true }: LogoProps) {
             {!imageError ? (
                 <img
                     src="/logo.png"
-                    alt="ACOMPANHANTES AGORA"
+                    alt="SpotGP"
                     width={dimensions.width}
                     height={dimensions.height}
-                    className="flex-shrink-0 object-contain md:scale-110"
-                    style={{ maxWidth: '100%', height: 'auto' }}
+                    className="flex-shrink-0 object-contain md:scale-110 max-w-full h-auto"
                     onError={() => setImageError(true)}
                 />
             ) : (
@@ -43,14 +42,14 @@ export function Logo({ className, size = 'md', showText = true }: LogoProps) {
                 >
                     {/* Background Circle */}
                     <circle cx="32" cy="32" r="30" fill="url(#gradient)" />
-                    
+
                     {/* Inner Circle (Heart shape inspiration) */}
                     <path
                         d="M32 20C28 16 20 18 20 26C20 34 32 44 32 44C32 44 44 34 44 26C44 18 36 16 32 20Z"
                         fill="white"
                         opacity="0.9"
                     />
-                    
+
                     {/* Elegant accent line */}
                     <path
                         d="M20 38 Q32 30 44 38"
@@ -60,7 +59,7 @@ export function Logo({ className, size = 'md', showText = true }: LogoProps) {
                         fill="none"
                         opacity="0.7"
                     />
-                    
+
                     {/* Gradient definition */}
                     <defs>
                         <linearGradient id="gradient" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
@@ -79,7 +78,7 @@ export function Logo({ className, size = 'md', showText = true }: LogoProps) {
                     "whitespace-nowrap",
                     "font-['Montserrat',sans-serif]"
                 )}>
-                    ACOMPANHANTES AGORA
+                    SpotGP
                 </span>
             )}
         </div>

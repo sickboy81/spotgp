@@ -1,4 +1,4 @@
-import { Lock, Eye, Shield, Database, UserX, FileText } from 'lucide-react';
+import { Lock, Eye, Shield, Database, UserX } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 export default function Privacidade() {
@@ -24,8 +24,8 @@ export default function Privacidade() {
                     </div>
                     <div className="space-y-4 text-foreground leading-relaxed">
                         <p>
-                            A acompanhantesAGORA ("nós", "nosso" ou "empresa") respeita sua privacidade e está comprometida 
-                            em proteger seus dados pessoais. Esta Política de Privacidade explica como coletamos, 
+                            A acompanhantesAGORA ("nós", "nosso" ou "empresa") respeita sua privacidade e está comprometida
+                            em proteger seus dados pessoais. Esta Política de Privacidade explica como coletamos,
                             usamos e protegemos suas informações quando você usa nosso serviço.
                         </p>
                         <p>
@@ -89,23 +89,23 @@ export default function Privacidade() {
                     <h2 className="text-2xl font-bold text-foreground mb-4">4. Compartilhamento de Informações</h2>
                     <div className="space-y-4 text-foreground leading-relaxed">
                         <p className="font-semibold">NÃO vendemos seus dados pessoais. Podemos compartilhar informações apenas em situações limitadas:</p>
-                        
+
                         <h3 className="text-lg font-semibold mt-4">4.1 Informações públicas no perfil:</h3>
                         <p>
-                            Informações publicadas no perfil (nome, fotos, descrição) são visíveis publicamente 
+                            Informações publicadas no perfil (nome, fotos, descrição) são visíveis publicamente
                             para outros usuários do site.
                         </p>
 
                         <h3 className="text-lg font-semibold mt-4">4.2 Prestadores de serviços:</h3>
                         <p>
-                            Podemos compartilhar dados com prestadores de serviços confiáveis que nos ajudam 
-                            a operar o site (hospedagem, processamento de pagamentos, análise de dados), 
+                            Podemos compartilhar dados com prestadores de serviços confiáveis que nos ajudam
+                            a operar o site (hospedagem, processamento de pagamentos, análise de dados),
                             sujeitos a acordos de confidencialidade.
                         </p>
 
                         <h3 className="text-lg font-semibold mt-4">4.3 Requisitos legais:</h3>
                         <p>
-                            Podemos divulgar informações se exigido por lei, ordem judicial ou processo legal, 
+                            Podemos divulgar informações se exigido por lei, ordem judicial ou processo legal,
                             ou para proteger nossos direitos, propriedade ou segurança.
                         </p>
                     </div>
@@ -116,7 +116,7 @@ export default function Privacidade() {
                     <h2 className="text-2xl font-bold text-foreground mb-4">5. Segurança dos Dados</h2>
                     <div className="space-y-4 text-foreground leading-relaxed">
                         <p>
-                            Implementamos medidas de segurança técnicas e organizacionais apropriadas para proteger 
+                            Implementamos medidas de segurança técnicas e organizacionais apropriadas para proteger
                             seus dados pessoais contra acesso não autorizado, alteração, divulgação ou destruição.
                         </p>
                         <div className="bg-muted/50 border-l-4 border-primary rounded-lg p-4">
@@ -130,8 +130,8 @@ export default function Privacidade() {
                             </ul>
                         </div>
                         <p className="text-sm text-muted-foreground">
-                            No entanto, nenhum método de transmissão pela internet ou armazenamento eletrônico 
-                            é 100% seguro. Embora nos esforcemos para proteger seus dados, não podemos garantir 
+                            No entanto, nenhum método de transmissão pela internet ou armazenamento eletrônico
+                            é 100% seguro. Embora nos esforcemos para proteger seus dados, não podemos garantir
                             segurança absoluta.
                         </p>
                     </div>
@@ -164,11 +164,11 @@ export default function Privacidade() {
                     <h2 className="text-2xl font-bold text-foreground mb-4">7. Cookies e Tecnologias Similares</h2>
                     <div className="space-y-4 text-foreground leading-relaxed">
                         <p>
-                            Usamos cookies e tecnologias similares para melhorar sua experiência, analisar o uso 
+                            Usamos cookies e tecnologias similares para melhorar sua experiência, analisar o uso
                             do site e personalizar conteúdo.
                         </p>
                         <p>
-                            Você pode configurar seu navegador para recusar cookies, mas isso pode afetar 
+                            Você pode configurar seu navegador para recusar cookies, mas isso pode afetar
                             a funcionalidade do site.
                         </p>
                     </div>
@@ -182,12 +182,12 @@ export default function Privacidade() {
                     </div>
                     <div className="space-y-4 text-foreground leading-relaxed">
                         <p>
-                            Mantemos seus dados pessoais apenas pelo tempo necessário para cumprir os propósitos 
-                            descritos nesta política, a menos que um período de retenção mais longo seja exigido 
+                            Mantemos seus dados pessoais apenas pelo tempo necessário para cumprir os propósitos
+                            descritos nesta política, a menos que um período de retenção mais longo seja exigido
                             ou permitido por lei.
                         </p>
                         <p>
-                            Quando você encerra sua conta, excluímos ou anonimizamos seus dados pessoais, 
+                            Quando você encerra sua conta, excluímos ou anonimizamos seus dados pessoais,
                             exceto quando a retenção for necessária para cumprir obrigações legais.
                         </p>
                     </div>
@@ -203,8 +203,8 @@ export default function Privacidade() {
                             </p>
                         </div>
                         <p>
-                            Não coletamos intencionalmente dados pessoais de menores de 18 anos. 
-                            Se descobrirmos que coletamos dados de um menor, tomaremos medidas para 
+                            Não coletamos intencionalmente dados pessoais de menores de 18 anos.
+                            Se descobrirmos que coletamos dados de um menor, tomaremos medidas para
                             excluir essas informações imediatamente.
                         </p>
                     </div>
@@ -215,12 +215,12 @@ export default function Privacidade() {
                     <h2 className="text-2xl font-bold text-foreground mb-4">10. Alterações nesta Política</h2>
                     <div className="space-y-4 text-foreground leading-relaxed">
                         <p>
-                            Podemos atualizar esta Política de Privacidade periodicamente. 
-                            Notificaremos sobre mudanças significativas publicando a nova política 
+                            Podemos atualizar esta Política de Privacidade periodicamente.
+                            Notificaremos sobre mudanças significativas publicando a nova política
                             nesta página e atualizando a data de "última atualização".
                         </p>
                         <p>
-                            Recomendamos que você revise esta política periodicamente para se manter 
+                            Recomendamos que você revise esta política periodicamente para se manter
                             informado sobre como protegemos suas informações.
                         </p>
                     </div>
@@ -231,8 +231,8 @@ export default function Privacidade() {
                     <h2 className="text-2xl font-bold text-foreground mb-4">Contato</h2>
                     <div className="space-y-4 text-foreground leading-relaxed">
                         <p>
-                            Se você tiver dúvidas sobre esta Política de Privacidade ou sobre como 
-                            tratamos seus dados pessoais, entre em contato conosco através dos 
+                            Se você tiver dúvidas sobre esta Política de Privacidade ou sobre como
+                            tratamos seus dados pessoais, entre em contato conosco através dos
                             canais de atendimento disponíveis no site.
                         </p>
                     </div>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Eye, TrendingUp, Heart, BarChart, Calendar, Loader2, Download } from 'lucide-react';
+import { Eye, TrendingUp, Heart, BarChart, Loader2, Download } from 'lucide-react';
+import { useCallback } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { getProfileAnalytics, AnalyticsData } from '@/lib/api/analytics';
 import { LineChart, Line, BarChart as RechartsBarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
@@ -10,15 +11,9 @@ export default function Analytics() {
     const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
     const [timeRange, setTimeRange] = useState<'today' | 'week' | 'month' | 'all'>('month');
 
-    useEffect(() => {
-        if (user?.id) {
-            loadAnalytics();
-        }
-    }, [user?.id, timeRange]);
-
-    const loadAnalytics = async () => {
+    const loadAnalytics = useCallback(async () => {
         if (!user?.id) return;
-        
+
         setLoading(true);
         try {
             const data = await getProfileAnalytics(user.id, timeRange);
@@ -34,11 +29,17 @@ export default function Analytics() {
         } finally {
             setLoading(false);
         }
-    };
+    }, [user?.id, timeRange]);
+
+    useEffect(() => {
+        if (user?.id) {
+            loadAnalytics();
+        }
+    }, [user?.id, loadAnalytics]);
 
     const exportReport = () => {
         if (!analytics) return;
-        
+
         const report = {
             Período: timeRange,
             'Total de Visualizações': analytics.views.total,
@@ -100,7 +101,8 @@ export default function Analytics() {
                 <div className="flex items-center gap-3">
                     <select
                         value={timeRange}
-                        onChange={(e) => setTimeRange(e.target.value as any)}
+                        onChange={(e) => setTimeRange(e.target.value as 'today' | 'week' | 'month' | 'all')}
+                        aria-label="Selecionar período"
                         className="bg-background border border-input rounded-md px-4 py-2 text-sm focus:ring-1 focus:ring-primary outline-none"
                     >
                         <option value="today">Hoje</option>
@@ -231,8 +233,8 @@ export default function Analytics() {
                 <h3 className="text-xl font-bold mb-4">Visualizações por Dispositivo</h3>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     {Object.entries(analytics.views.byDevice).map(([device, count]) => {
-                        const percentage = analytics.views.total > 0 
-                            ? ((count / analytics.views.total) * 100).toFixed(1) 
+                        const percentage = analytics.views.total > 0
+                            ? ((count / analytics.views.total) * 100).toFixed(1)
                             : '0';
                         return (
                             <div key={device} className="p-4 border border-border rounded-lg">
@@ -241,11 +243,10 @@ export default function Analytics() {
                                 </p>
                                 <p className="text-2xl font-bold mb-2">{count.toLocaleString()}</p>
                                 <div className="w-full bg-muted rounded-full h-2">
-                                    <div 
-                                        className="bg-primary h-2 rounded-full"
-                                        style={{ width: `${percentage}%` }}
-                                    />
-                                </div>
+                                    <div
+                                        className="h-full bg-primary rounded-full w-[var(--bar-width)]"
+                                        style={{ '--bar-width': `${percentage}%` } as React.CSSProperties}
+                                    />                            </div>
                                 <p className="text-xs text-muted-foreground mt-1">{percentage}%</p>
                             </div>
                         );

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { X, Film } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import { pb } from '@/lib/pocketbase';
 import { useAuth } from '@/hooks/useAuth';
 import { cn } from '@/lib/utils';
 
@@ -42,32 +42,12 @@ export function VideoUploader({ onUploadComplete }: VideoUploaderProps) {
         setError(null);
 
         try {
-            const fileExt = videoFile.name.split('.').pop();
-            const fileName = `${user.id}/${Date.now()}.${fileExt}`;
+            const formData = new FormData();
+            formData.append('file', videoFile);
+            formData.append('profile_id', user.id);
+            formData.append('type', 'video');
 
-            // 1. Upload to Storage
-            const { error: uploadError } = await supabase.storage
-                .from('videos')
-                .upload(fileName, videoFile);
-
-            if (uploadError) throw uploadError;
-
-            // 2. Get Public URL
-            const { data: { publicUrl } } = supabase.storage
-                .from('videos')
-                .getPublicUrl(fileName);
-
-            // 3. Save to DB
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const { error: dbError } = await supabase
-                .from('media')
-                .insert({
-                    profile_id: user.id,
-                    url: publicUrl,
-                    type: 'video'
-                } as any);
-
-            if (dbError) throw dbError;
+            await pb.collection('media').create(formData);
 
             setVideoFile(null);
             if (onUploadComplete) onUploadComplete();

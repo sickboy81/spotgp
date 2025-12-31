@@ -3,7 +3,7 @@ import { TrendingUp, Play, Star, Sparkles, Check, Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import { Link } from 'react-router-dom';
-import { getPricingConfig, type BoostPlan, type ExtraFeature } from '@/lib/utils/pricing-config';
+import { getPricingConfig, type BoostPlan } from '@/lib/utils/pricing-config';
 
 export default function Pricing() {
     const { user } = useAuth();
@@ -25,7 +25,7 @@ export default function Pricing() {
     }, []);
 
     const activePlans = config.plans.filter(p => p.active);
-    const filteredPlans = selectedBoosts 
+    const filteredPlans = selectedBoosts
         ? activePlans.filter(p => p.boostsPerDay === selectedBoosts)
         : activePlans.filter(p => p.recommended);
 
@@ -38,7 +38,7 @@ export default function Pricing() {
             return;
         }
         // TODO: Implement purchase flow
-        alert(`Contratando: ${plan.boostsPerDay} subidas/dia por ${plan.duration} dias - R$ ${plan.totalPrice.toFixed(2)}`);
+        alert(`Contratando: ${plan.boostsPerDay} subidas / dia por ${plan.duration} dias - R$ ${plan.totalPrice.toFixed(2)} `);
     };
 
     return (
@@ -185,43 +185,43 @@ export default function Pricing() {
                             <h3 className="text-lg font-semibold mb-4">{selectedBoosts} Subidas por Dia</h3>
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                                 {filteredPlans.map(plan => (
-                                <div
-                                    key={plan.id}
-                                    className={cn(
-                                        "bg-card border-2 rounded-xl p-6 shadow-lg relative transition-transform hover:scale-105",
-                                        plan.recommended
-                                            ? "border-primary bg-primary/5"
-                                            : "border-border"
-                                    )}
-                                >
-                                    {plan.recommended && (
-                                        <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-primary text-white px-4 py-1 rounded-full text-xs font-bold">
-                                            Recomendado
-                                        </div>
-                                    )}
-                                    <div className="text-center mb-4">
-                                        <div className="text-2xl font-bold mb-1">{plan.duration} dias</div>
-                                        <div className="text-base text-muted-foreground">{plan.boostsPerDay} subidas / dia</div>
-                                    </div>
-                                    <div className="text-center mb-6">
-                                        <div className="text-3xl font-bold mb-1">R$ {plan.totalPrice.toFixed(2)}</div>
-                                        <div className="text-sm text-muted-foreground">R$ {plan.pricePerDay.toFixed(2)} / dia</div>
-                                    </div>
-                                    <button
-                                        onClick={() => handlePurchase(plan)}
+                                    <div
+                                        key={plan.id}
                                         className={cn(
-                                            "w-full py-3 rounded-lg font-bold transition-colors",
+                                            "bg-card border-2 rounded-xl p-6 shadow-lg relative transition-transform hover:scale-105",
                                             plan.recommended
-                                                ? "bg-primary text-white hover:bg-primary/90"
-                                                : "bg-muted text-foreground hover:bg-muted/80"
+                                                ? "border-primary bg-primary/5"
+                                                : "border-border"
                                         )}
                                     >
-                                        Contratar
-                                    </button>
-                                </div>
-                            ))}
+                                        {plan.recommended && (
+                                            <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-primary text-white px-4 py-1 rounded-full text-xs font-bold">
+                                                Recomendado
+                                            </div>
+                                        )}
+                                        <div className="text-center mb-4">
+                                            <div className="text-2xl font-bold mb-1">{plan.duration} dias</div>
+                                            <div className="text-base text-muted-foreground">{plan.boostsPerDay} subidas / dia</div>
+                                        </div>
+                                        <div className="text-center mb-6">
+                                            <div className="text-3xl font-bold mb-1">R$ {plan.totalPrice.toFixed(2)}</div>
+                                            <div className="text-sm text-muted-foreground">R$ {plan.pricePerDay.toFixed(2)} / dia</div>
+                                        </div>
+                                        <button
+                                            onClick={() => handlePurchase(plan)}
+                                            className={cn(
+                                                "w-full py-3 rounded-lg font-bold transition-colors",
+                                                plan.recommended
+                                                    ? "bg-primary text-white hover:bg-primary/90"
+                                                    : "bg-muted text-foreground hover:bg-muted/80"
+                                            )}
+                                        >
+                                            Contratar
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
                         </div>
-                    </div>
                     )}
                 </section>
 
@@ -230,21 +230,21 @@ export default function Pricing() {
                     <div className={cn(
                         "grid gap-6 mb-12",
                         config.extraFeatures.filter(f => f.active).length === 1 ? "grid-cols-1" :
-                        config.extraFeatures.filter(f => f.active).length === 2 ? "grid-cols-1 md:grid-cols-2" :
-                        "grid-cols-1 md:grid-cols-3"
+                            config.extraFeatures.filter(f => f.active).length === 2 ? "grid-cols-1 md:grid-cols-2" :
+                                "grid-cols-1 md:grid-cols-3"
                     )}>
                         {config.extraFeatures.filter(f => f.active).map(feature => {
                             const IconComponent = feature.icon === 'multimedia' ? Play :
-                                                 feature.icon === 'featured' ? Star :
-                                                 feature.icon === 'stories' ? Sparkles : Play;
-                            
+                                feature.icon === 'featured' ? Star :
+                                    feature.icon === 'stories' ? Sparkles : Play;
+
                             const bgColor = feature.icon === 'multimedia' ? 'bg-blue-500/10 border-blue-500/30' :
-                                           feature.icon === 'featured' ? 'bg-yellow-500/10 border-yellow-500/30' :
-                                           'bg-pink-500/10 border-pink-500/30';
-                            
+                                feature.icon === 'featured' ? 'bg-yellow-500/10 border-yellow-500/30' :
+                                    'bg-pink-500/10 border-pink-500/30';
+
                             const iconBg = feature.icon === 'multimedia' ? 'bg-blue-500/10 text-blue-500' :
-                                          feature.icon === 'featured' ? 'bg-yellow-500/20 text-yellow-600' :
-                                          'bg-pink-500/20 text-pink-600';
+                                feature.icon === 'featured' ? 'bg-yellow-500/20 text-yellow-600' :
+                                    'bg-pink-500/20 text-pink-600';
 
                             return (
                                 <div key={feature.id} className={cn("border rounded-xl p-6", bgColor)}>
@@ -255,7 +255,7 @@ export default function Pricing() {
                                         <h3 className="text-xl font-bold">{feature.title}</h3>
                                     </div>
                                     <p className="text-muted-foreground mb-4">
-                                        {feature.description.split(feature.price).map((part, idx, arr) => 
+                                        {feature.description.split(feature.price).map((part, idx, arr) =>
                                             idx === arr.length - 1 ? (
                                                 <span key={idx}>{part}</span>
                                             ) : (

@@ -2,10 +2,18 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Users, TrendingUp, AlertCircle, Eye, DollarSign, Calendar, Loader2, Gift, Power, Settings } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { supabase } from '@/lib/supabase';
+import { pb } from '@/lib/pocketbase';
 import { getReports } from '@/lib/api/reports';
 import { isFreeModeEnabled, setFreeMode } from '@/lib/utils/free-mode';
 import { cn } from '@/lib/utils';
+
+interface Activity {
+    type: 'user' | 'report' | 'ban' | 'verification';
+    action: string;
+    user: string;
+    time: string;
+    timestamp: number;
+}
 
 export default function AdminStats() {
     const [timeRange, setTimeRange] = useState<'today' | 'week' | 'month' | 'all'>('month');
@@ -21,7 +29,7 @@ export default function AdminStats() {
         bannedUsers: 0,
         verifiedProfiles: 0,
     });
-    const [recentActivity, setRecentActivity] = useState<any[]>([]);
+    const [recentActivity, setRecentActivity] = useState<Activity[]>([]);
 
     const handleToggleFreeMode = () => {
         const newValue = !freeMode;
@@ -30,137 +38,144 @@ export default function AdminStats() {
     };
 
     useEffect(() => {
-        loadStats();
-    }, [timeRange]);
-
-    const getDateFilter = () => {
-        const now = new Date();
-        switch (timeRange) {
-            case 'today':
-                return new Date(now.getFullYear(), now.getMonth(), now.getDate());
-            case 'week':
-                const weekAgo = new Date(now);
-                weekAgo.setDate(now.getDate() - 7);
-                return weekAgo;
-            case 'month':
-                return new Date(now.getFullYear(), now.getMonth(), 1);
-            default:
-                return null;
-        }
-    };
-
-    const loadStats = async () => {
-        setLoading(true);
-        try {
-            const dateFilter = getDateFilter();
-            const dateFilterStr = dateFilter?.toISOString();
-
-            // Total users
-            let totalUsersQuery = supabase.from('profiles').select('id', { count: 'exact', head: true });
-            const { count: totalUsers } = await totalUsersQuery;
-
-            // Active users (not banned)
-            let activeUsersQuery = supabase
-                .from('profiles')
-                .select('id', { count: 'exact', head: true })
-                .eq('is_banned', false);
-            const { count: activeUsers } = await activeUsersQuery;
-
-            // New users in time range
-            let newUsersQuery = supabase
-                .from('profiles')
-                .select('id', { count: 'exact', head: true });
-            if (dateFilterStr) {
-                newUsersQuery = newUsersQuery.gte('created_at', dateFilterStr);
+        const getDateFilter = () => {
+            const now = new Date();
+            switch (timeRange) {
+                case 'today':
+                    return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                case 'week': {
+                    const weekAgo = new Date(now);
+                    weekAgo.setDate(now.getDate() - 7);
+                    return weekAgo;
+                }
+                case 'month':
+                    return new Date(now.getFullYear(), now.getMonth(), 1);
+                default:
+                    return null;
             }
-            const { count: newUsers } = await newUsersQuery || { count: 0 };
+        };
 
-            // Banned users
-            const { count: bannedUsers } = await supabase
-                .from('profiles')
-                .select('id', { count: 'exact', head: true })
-                .eq('is_banned', true);
+        const loadRecentActivity = async () => {
+            try {
+                const activities: Activity[] = [];
 
-            // Verified profiles
-            const { count: verifiedProfiles } = await supabase
-                .from('profiles')
-                .select('id', { count: 'exact', head: true })
-                .eq('verified', true);
+                // Recent users
+                const recentUsersResult = await pb.collection('profiles').getList(1, 5, {
+                    sort: '-created',
+                    fields: 'display_name,created'
+                });
+                const recentUsers = recentUsersResult.items;
 
-            // Pending reports
-            const reports = await getReports({ status: 'pending' });
-            const pendingReports = reports.length;
+                if (recentUsers) {
+                    recentUsers.forEach(user => {
+                        activities.push({
+                            type: 'user',
+                            action: 'Novo usuário registrado',
+                            user: user.display_name || 'Usuário sem nome',
+                            time: formatTimeAgo(user.created),
+                            timestamp: new Date(user.created).getTime(),
+                        });
+                    });
+                }
 
-            // Total views (if we had a views table, we'd sum it here)
-            // For now, we'll use a placeholder or calculate from profiles
-            const totalViews = 0; // TODO: Implement views tracking
-
-            // Total revenue (if we had a payments table, we'd sum it here)
-            // For now, we'll use a placeholder
-            const totalRevenue = 0; // TODO: Implement revenue tracking
-
-            setStats({
-                totalUsers: totalUsers || 0,
-                activeUsers: activeUsers || 0,
-                newUsers: newUsers || 0,
-                totalViews,
-                totalRevenue,
-                pendingReports,
-                bannedUsers: bannedUsers || 0,
-                verifiedProfiles: verifiedProfiles || 0,
-            });
-
-            // Load recent activity
-            await loadRecentActivity();
-        } catch (error) {
-            console.error('Error loading stats:', error);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const loadRecentActivity = async () => {
-        try {
-            const activities: any[] = [];
-
-            // Recent users
-            const { data: recentUsers } = await supabase
-                .from('profiles')
-                .select('display_name, created_at')
-                .order('created_at', { ascending: false })
-                .limit(5);
-
-            if (recentUsers) {
-                recentUsers.forEach(user => {
+                // Recent reports
+                const reports = await getReports({ limit: 5 });
+                reports.forEach(report => {
                     activities.push({
-                        type: 'user',
-                        action: 'Novo usuário registrado',
-                        user: user.display_name || 'Usuário sem nome',
-                        time: formatTimeAgo(user.created_at),
-                        timestamp: new Date(user.created_at).getTime(),
+                        type: 'report',
+                        action: 'Report de conteúdo recebido',
+                        user: report.reported_profile?.display_name || 'Perfil sem nome',
+                        time: formatTimeAgo(report.created),
+                        timestamp: new Date(report.created).getTime(),
                     });
                 });
+
+                // Sort by timestamp and limit
+                activities.sort((a, b) => b.timestamp - a.timestamp);
+                setRecentActivity(activities.slice(0, 10));
+            } catch (error) {
+                console.error('Error loading recent activity:', error);
             }
+        };
 
-            // Recent reports
-            const reports = await getReports({ limit: 5 });
-            reports.forEach(report => {
-                activities.push({
-                    type: 'report',
-                    action: 'Report de conteúdo recebido',
-                    user: report.reported_profile?.display_name || 'Perfil sem nome',
-                    time: formatTimeAgo(report.created_at),
-                    timestamp: new Date(report.created_at).getTime(),
+        const loadStats = async () => {
+            setLoading(true);
+            try {
+                const dateFilter = getDateFilter();
+                const dateFilterStr = dateFilter?.toISOString();
+
+                // Total users
+                const totalUsersResult = await pb.collection('profiles').getList(1, 1, {
+                    fields: 'id'
                 });
-            });
+                const totalUsers = totalUsersResult.totalItems;
 
-            // Sort by timestamp and limit
-            activities.sort((a, b) => b.timestamp - a.timestamp);
-            setRecentActivity(activities.slice(0, 10));
-        } catch (error) {
-            console.error('Error loading recent activity:', error);
-        }
-    };
+                // Active users (not banned)
+                const activeUsersResult = await pb.collection('profiles').getList(1, 1, {
+                    filter: 'is_banned = false',
+                    fields: 'id'
+                });
+                const activeUsers = activeUsersResult.totalItems;
+
+                // New users in time range
+                let newUsersFilter = '';
+                if (dateFilterStr) {
+                    newUsersFilter = `created >= "${dateFilterStr}"`;
+                }
+                const newUsersResult = await pb.collection('profiles').getList(1, 1, {
+                    filter: newUsersFilter,
+                    fields: 'id'
+                });
+                const newUsers = newUsersResult.totalItems;
+
+                // Banned users
+                const bannedUsersResult = await pb.collection('profiles').getList(1, 1, {
+                    filter: 'is_banned = true',
+                    fields: 'id'
+                });
+                const bannedUsers = bannedUsersResult.totalItems;
+
+                // Verified profiles
+                const verifiedProfilesResult = await pb.collection('profiles').getList(1, 1, {
+                    filter: 'verified = true',
+                    fields: 'id'
+                });
+                const verifiedProfiles = verifiedProfilesResult.totalItems;
+
+                // Pending reports
+                const reports = await getReports({ status: 'pending' });
+                const pendingReports = reports.length;
+
+                // Total views (if we had a views table, we'd sum it here)
+                // For now, we'll use a placeholder or calculate from profiles
+                const totalViews = 0; // TODO: Implement views tracking
+
+                // Total revenue (if we had a payments table, we'd sum it here)
+                // For now, we'll use a placeholder
+                const totalRevenue = 0; // TODO: Implement revenue tracking
+
+                setStats({
+                    totalUsers: totalUsers || 0,
+                    activeUsers: activeUsers || 0,
+                    newUsers: newUsers || 0,
+                    totalViews,
+                    totalRevenue,
+                    pendingReports,
+                    bannedUsers: bannedUsers || 0,
+                    verifiedProfiles: verifiedProfiles || 0,
+                });
+
+                // Load recent activity
+                await loadRecentActivity();
+            } catch (error) {
+                console.error('Error loading stats:', error);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        loadStats();
+    }, [timeRange]);
 
     const formatTimeAgo = (dateString: string) => {
         const date = new Date(dateString);
@@ -185,8 +200,9 @@ export default function AdminStats() {
                 </div>
                 <select
                     value={timeRange}
-                    onChange={(e) => setTimeRange(e.target.value as any)}
+                    onChange={(e) => setTimeRange(e.target.value as 'today' | 'week' | 'month' | 'all')}
                     className="bg-background border border-input rounded-md px-4 py-2 text-sm focus:ring-1 focus:ring-primary outline-none"
+                    aria-label="Período"
                 >
                     <option value="today">Hoje</option>
                     <option value="week">Esta Semana</option>
@@ -215,7 +231,7 @@ export default function AdminStats() {
                         <div>
                             <h3 className="text-lg font-bold mb-1">Modo Gratuito</h3>
                             <p className="text-sm text-muted-foreground">
-                                {freeMode 
+                                {freeMode
                                     ? 'Todo o site está gratuito para atrair novos usuários'
                                     : 'Algumas funcionalidades podem exigir planos pagos'}
                             </p>
@@ -246,7 +262,7 @@ export default function AdminStats() {
                         </Link>
                     </div>
                 </div>
-                
+
                 {freeMode && (
                     <div className="mt-4 p-4 bg-green-500/5 border border-green-500/20 rounded-lg">
                         <div className="flex items-start gap-2">
@@ -266,150 +282,150 @@ export default function AdminStats() {
                 </div>
             ) : (
                 <>
-            {/* Main Stats Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="bg-card border border-border p-6 rounded-xl shadow-sm"
-                >
-                    <div className="flex items-center justify-between mb-4">
-                        <div className="p-3 bg-blue-500/10 rounded-lg text-blue-500">
-                            <Users className="w-6 h-6" />
-                        </div>
-                        {stats.newUsers > 0 && (
-                            <span className="text-xs font-medium text-green-500 bg-green-500/10 px-2 py-1 rounded-full">
-                                +{stats.newUsers} novos
-                            </span>
-                        )}
-                    </div>
-                    <h3 className="text-2xl font-bold mb-1">{stats.totalUsers.toLocaleString()}</h3>
-                    <p className="text-sm text-muted-foreground">Total de Usuários</p>
-                </motion.div>
-
-                <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.1 }}
-                    className="bg-card border border-border p-6 rounded-xl shadow-sm"
-                >
-                    <div className="flex items-center justify-between mb-4">
-                        <div className="p-3 bg-green-500/10 rounded-lg text-green-500">
-                            <TrendingUp className="w-6 h-6" />
-                        </div>
-                    </div>
-                    <h3 className="text-2xl font-bold mb-1">{stats.activeUsers.toLocaleString()}</h3>
-                    <p className="text-sm text-muted-foreground">Usuários Ativos</p>
-                </motion.div>
-
-                <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.2 }}
-                    className="bg-card border border-border p-6 rounded-xl shadow-sm"
-                >
-                    <div className="flex items-center justify-between mb-4">
-                        <div className="p-3 bg-purple-500/10 rounded-lg text-purple-500">
-                            <Eye className="w-6 h-6" />
-                        </div>
-                    </div>
-                    <h3 className="text-2xl font-bold mb-1">{stats.totalViews.toLocaleString()}</h3>
-                    <p className="text-sm text-muted-foreground">Visualizações</p>
-                </motion.div>
-
-                <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.3 }}
-                    className="bg-card border border-border p-6 rounded-xl shadow-sm"
-                >
-                    <div className="flex items-center justify-between mb-4">
-                        <div className="p-3 bg-yellow-500/10 rounded-lg text-yellow-500">
-                            <DollarSign className="w-6 h-6" />
-                        </div>
-                    </div>
-                    <h3 className="text-2xl font-bold mb-1">R$ {stats.totalRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</h3>
-                    <p className="text-sm text-muted-foreground">Receita Total</p>
-                </motion.div>
-            </div>
-
-            {/* Secondary Stats */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="bg-card border border-border p-6 rounded-xl shadow-sm">
-                    <div className="flex items-center gap-3 mb-4">
-                        <div className="p-2 bg-green-500/10 rounded-lg text-green-500">
-                            <Users className="w-5 h-5" />
-                        </div>
-                        <div>
-                            <h3 className="text-xl font-bold">{stats.verifiedProfiles}</h3>
-                            <p className="text-sm text-muted-foreground">Perfis Verificados</p>
-                        </div>
-                    </div>
-                </div>
-
-                <div className="bg-card border border-border p-6 rounded-xl shadow-sm">
-                    <div className="flex items-center gap-3 mb-4">
-                        <div className="p-2 bg-orange-500/10 rounded-lg text-orange-500">
-                            <AlertCircle className="w-5 h-5" />
-                        </div>
-                        <div>
-                            <h3 className="text-xl font-bold">{stats.pendingReports}</h3>
-                            <p className="text-sm text-muted-foreground">Reports Pendentes</p>
-                        </div>
-                    </div>
-                </div>
-
-                <div className="bg-card border border-border p-6 rounded-xl shadow-sm">
-                    <div className="flex items-center gap-3 mb-4">
-                        <div className="p-2 bg-red-500/10 rounded-lg text-red-500">
-                            <AlertCircle className="w-5 h-5" />
-                        </div>
-                        <div>
-                            <h3 className="text-xl font-bold">{stats.bannedUsers}</h3>
-                            <p className="text-sm text-muted-foreground">Usuários Banidos</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            {/* Recent Activity */}
-            <div className="bg-card border border-border rounded-xl p-6">
-                <div className="flex items-center gap-2 mb-6">
-                    <Calendar className="w-5 h-5 text-primary" />
-                    <h2 className="text-xl font-bold">Atividade Recente</h2>
-                </div>
-                <div className="space-y-4">
-                    {recentActivity.map((activity, i) => (
+                    {/* Main Stats Grid */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                         <motion.div
-                            key={i}
-                            initial={{ opacity: 0, x: -20 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            transition={{ delay: i * 0.1 }}
-                            className="flex items-center justify-between py-3 border-b last:border-0 border-border"
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="bg-card border border-border p-6 rounded-xl shadow-sm"
                         >
-                            <div className="flex items-center space-x-3">
-                                <div className={`
+                            <div className="flex items-center justify-between mb-4">
+                                <div className="p-3 bg-blue-500/10 rounded-lg text-blue-500">
+                                    <Users className="w-6 h-6" />
+                                </div>
+                                {stats.newUsers > 0 && (
+                                    <span className="text-xs font-medium text-green-500 bg-green-500/10 px-2 py-1 rounded-full">
+                                        +{stats.newUsers} novos
+                                    </span>
+                                )}
+                            </div>
+                            <h3 className="text-2xl font-bold mb-1">{stats.totalUsers.toLocaleString()}</h3>
+                            <p className="text-sm text-muted-foreground">Total de Usuários</p>
+                        </motion.div>
+
+                        <motion.div
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: 0.1 }}
+                            className="bg-card border border-border p-6 rounded-xl shadow-sm"
+                        >
+                            <div className="flex items-center justify-between mb-4">
+                                <div className="p-3 bg-green-500/10 rounded-lg text-green-500">
+                                    <TrendingUp className="w-6 h-6" />
+                                </div>
+                            </div>
+                            <h3 className="text-2xl font-bold mb-1">{stats.activeUsers.toLocaleString()}</h3>
+                            <p className="text-sm text-muted-foreground">Usuários Ativos</p>
+                        </motion.div>
+
+                        <motion.div
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: 0.2 }}
+                            className="bg-card border border-border p-6 rounded-xl shadow-sm"
+                        >
+                            <div className="flex items-center justify-between mb-4">
+                                <div className="p-3 bg-purple-500/10 rounded-lg text-purple-500">
+                                    <Eye className="w-6 h-6" />
+                                </div>
+                            </div>
+                            <h3 className="text-2xl font-bold mb-1">{stats.totalViews.toLocaleString()}</h3>
+                            <p className="text-sm text-muted-foreground">Visualizações</p>
+                        </motion.div>
+
+                        <motion.div
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: 0.3 }}
+                            className="bg-card border border-border p-6 rounded-xl shadow-sm"
+                        >
+                            <div className="flex items-center justify-between mb-4">
+                                <div className="p-3 bg-yellow-500/10 rounded-lg text-yellow-500">
+                                    <DollarSign className="w-6 h-6" />
+                                </div>
+                            </div>
+                            <h3 className="text-2xl font-bold mb-1">R$ {stats.totalRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</h3>
+                            <p className="text-sm text-muted-foreground">Receita Total</p>
+                        </motion.div>
+                    </div>
+
+                    {/* Secondary Stats */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div className="bg-card border border-border p-6 rounded-xl shadow-sm">
+                            <div className="flex items-center gap-3 mb-4">
+                                <div className="p-2 bg-green-500/10 rounded-lg text-green-500">
+                                    <Users className="w-5 h-5" />
+                                </div>
+                                <div>
+                                    <h3 className="text-xl font-bold">{stats.verifiedProfiles}</h3>
+                                    <p className="text-sm text-muted-foreground">Perfis Verificados</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="bg-card border border-border p-6 rounded-xl shadow-sm">
+                            <div className="flex items-center gap-3 mb-4">
+                                <div className="p-2 bg-orange-500/10 rounded-lg text-orange-500">
+                                    <AlertCircle className="w-5 h-5" />
+                                </div>
+                                <div>
+                                    <h3 className="text-xl font-bold">{stats.pendingReports}</h3>
+                                    <p className="text-sm text-muted-foreground">Reports Pendentes</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="bg-card border border-border p-6 rounded-xl shadow-sm">
+                            <div className="flex items-center gap-3 mb-4">
+                                <div className="p-2 bg-red-500/10 rounded-lg text-red-500">
+                                    <AlertCircle className="w-5 h-5" />
+                                </div>
+                                <div>
+                                    <h3 className="text-xl font-bold">{stats.bannedUsers}</h3>
+                                    <p className="text-sm text-muted-foreground">Usuários Banidos</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Recent Activity */}
+                    <div className="bg-card border border-border rounded-xl p-6">
+                        <div className="flex items-center gap-2 mb-6">
+                            <Calendar className="w-5 h-5 text-primary" />
+                            <h2 className="text-xl font-bold">Atividade Recente</h2>
+                        </div>
+                        <div className="space-y-4">
+                            {recentActivity.map((activity, i) => (
+                                <motion.div
+                                    key={i}
+                                    initial={{ opacity: 0, x: -20 }}
+                                    animate={{ opacity: 1, x: 0 }}
+                                    transition={{ delay: i * 0.1 }}
+                                    className="flex items-center justify-between py-3 border-b last:border-0 border-border"
+                                >
+                                    <div className="flex items-center space-x-3">
+                                        <div className={`
                                     w-10 h-10 rounded-full flex items-center justify-center
                                     ${activity.type === 'user' ? 'bg-blue-500/10 text-blue-500' : ''}
                                     ${activity.type === 'report' ? 'bg-orange-500/10 text-orange-500' : ''}
                                     ${activity.type === 'ban' ? 'bg-red-500/10 text-red-500' : ''}
                                     ${activity.type === 'verification' ? 'bg-green-500/10 text-green-500' : ''}
                                 `}>
-                                    {activity.type === 'user' && <Users className="w-5 h-5" />}
-                                    {activity.type === 'report' && <AlertCircle className="w-5 h-5" />}
-                                    {activity.type === 'ban' && <AlertCircle className="w-5 h-5" />}
-                                    {activity.type === 'verification' && <Users className="w-5 h-5" />}
-                                </div>
-                                <div>
-                                    <p className="font-medium">{activity.action}</p>
-                                    <p className="text-sm text-muted-foreground">{activity.user} • {activity.time}</p>
-                                </div>
-                            </div>
-                            <button className="text-sm text-primary hover:underline">Ver</button>
-                        </motion.div>
-                    ))}
-                </div>
-            </div>
+                                            {activity.type === 'user' && <Users className="w-5 h-5" />}
+                                            {activity.type === 'report' && <AlertCircle className="w-5 h-5" />}
+                                            {activity.type === 'ban' && <AlertCircle className="w-5 h-5" />}
+                                            {activity.type === 'verification' && <Users className="w-5 h-5" />}
+                                        </div>
+                                        <div>
+                                            <p className="font-medium">{activity.action}</p>
+                                            <p className="text-sm text-muted-foreground">{activity.user} • {activity.time}</p>
+                                        </div>
+                                    </div>
+                                    <button className="text-sm text-primary hover:underline">Ver</button>
+                                </motion.div>
+                            ))}
+                        </div>
+                    </div>
                 </>
             )}
         </div>

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Menu, Search, User, Heart, Shield, LayoutDashboard } from 'lucide-react';
+import { Menu, User, Heart, Shield, LayoutDashboard } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Logo } from '@/components/ui/Logo';
 import { NotificationBell } from '@/components/features/notifications/NotificationBell';
@@ -89,8 +89,8 @@ export function Navbar() {
                         </div>
                     )}
                     {user ? (
-                        <Link 
-                            to={role === 'super_admin' ? "/admin" : "/dashboard"} 
+                        <Link
+                            to={role === 'super_admin' ? "/admin" : "/dashboard"}
                             className="p-2 hover:bg-accent rounded-full transition-colors"
                             title={role === 'super_admin' ? 'Painel Admin' : 'Dashboard'}
                         >

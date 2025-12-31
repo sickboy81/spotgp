@@ -1,7 +1,5 @@
 // API functions for profile recommendations
-// Provides algorithm for recommending similar profiles
-
-import { supabase } from '../supabase';
+import { pb } from '@/lib/pocketbase';
 import { MOCK_PROFILES } from '../mock-data';
 
 export interface RecommendedProfile {
@@ -25,47 +23,19 @@ export async function getRecommendedProfiles(
     limit = 8
 ): Promise<RecommendedProfile[]> {
     try {
-        // First, get the reference profile
-        const { data: referenceProfile, error: refError } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', profileId)
-            .single();
+        const referenceProfile = await pb.collection('profiles').getOne(profileId);
 
-        if (refError || !referenceProfile) {
-            // Fallback to mock data
-            return getRecommendedFromMocks(profileId, limit);
-        }
-
-        // Build recommendation query
-        let query = supabase
-            .from('profiles')
-            .select(`
-                id,
-                display_name,
-                category,
-                city,
-                state,
-                price,
-                verified,
-                services,
-                media (url, type)
-            `)
-            .neq('id', profileId)
-            .eq('is_banned', false);
-
-        // Prioritize same category
+        let filter = `id != "${profileId}" && is_banned = false`;
         if (referenceProfile.category) {
-            query = query.eq('category', referenceProfile.category);
+            filter += ` && category = "${referenceProfile.category}"`;
         }
 
-        const { data: profiles, error } = await query.limit(limit * 2);
+        const result = await pb.collection('profiles').getList(1, limit * 2, {
+            filter,
+        });
 
-        if (error) throw error;
-
-        if (profiles && profiles.length > 0) {
-            // Score and sort profiles
-            const scoredProfiles = profiles
+        if (result.items.length > 0) {
+            const scoredProfiles = result.items
                 .map(profile => ({
                     ...profile,
                     score: calculateRecommendationScore(referenceProfile, profile),
@@ -74,12 +44,12 @@ export async function getRecommendedProfiles(
                 .sort((a, b) => b.score - a.score)
                 .slice(0, limit);
 
-            return scoredProfiles as RecommendedProfile[];
+            return scoredProfiles as unknown as RecommendedProfile[];
         }
 
         return getRecommendedFromMocks(profileId, limit);
     } catch (err: any) {
-        console.warn('Error getting recommendations from Supabase, using mocks:', err);
+        console.warn('Error getting recommendations from PocketBase, using mocks:', err);
         return getRecommendedFromMocks(profileId, limit);
     }
 }
@@ -187,5 +157,3 @@ function getRecommendedFromMocks(profileId: string, limit: number): RecommendedP
 
     return scored;
 }
-
-
