@@ -1,0 +1,27 @@
+{
+    "providers": [
+        "node"
+    ],
+    "phases": {
+        "setup": {
+            "nixPkgs": [
+                "nodejs_20"
+            ]
+        },
+        "install": {
+            "cmds": [
+                "npm ci"
+            ]
+        },
+        "build": {
+            "cmds": [
+                "npm run build"
+            ]
+        },
+        "start": {
+            "cmds": [
+                "npm run start"
+            ]
+        }
+    }
+}
