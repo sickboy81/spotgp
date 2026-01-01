@@ -5,7 +5,8 @@
     "phases": {
         "setup": {
             "nixPkgs": [
-                "nodejs_20"
+                "nodejs_20",
+                "caddy"
             ]
         },
         "install": {
@@ -17,11 +18,9 @@
             "cmds": [
                 "npm run build"
             ]
-        },
-        "start": {
-            "cmds": [
-                "npm run start"
-            ]
         }
+    },
+    "start": {
+        "cmd": "caddy file-server --root dist --listen :$PORT"
     }
 }
