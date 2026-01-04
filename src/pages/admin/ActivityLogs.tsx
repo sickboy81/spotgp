@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Search, Filter, Calendar, User, Ban, ShieldCheck, Flag, Trash2, Loader2 } from 'lucide-react';
-import { pb } from '@/lib/pocketbase';
+import { directus } from '@/lib/directus';
+import { readItems } from '@directus/sdk';
 import { cn } from '@/lib/utils';
 
 interface ActivityLog {
@@ -32,22 +33,27 @@ export default function ActivityLogs() {
             const activities: ActivityLog[] = [];
 
             // Get recent reports as activity
-            const reportsResult = await pb.collection('reports').getList(1, 50, {
-                sort: '-created',
-            });
-            const reports = reportsResult.items;
+            try {
+                const reports = await directus.request(readItems('reports', {
+                    sort: ['-date_created'],
+                    limit: 50,
+                    fields: ['*', 'reviewed_by'] // Fetch basic fields
+                }));
 
-            if (reports) {
-                reports.forEach(report => {
-                    activities.push({
-                        id: report.id,
-                        type: 'report',
-                        admin_id: report.reviewed_by || '',
-                        target_id: report.profile_id,
-                        description: `Report criado: ${report.type} - ${report.description.substring(0, 50)}...`,
-                        created: report.created,
+                if (reports) {
+                    reports.forEach((report: any) => {
+                        activities.push({
+                            id: report.id,
+                            type: 'report',
+                            admin_id: report.reviewed_by || '',
+                            target_id: report.profile_id,
+                            description: `Report criado: ${report.type} - ${(report.description || '').substring(0, 50)}...`,
+                            created: report.date_created,
+                        });
                     });
-                });
+                }
+            } catch (err) {
+                console.warn('Error fetching reports for logs', err);
             }
 
             // Sort by date
@@ -107,6 +113,7 @@ export default function ActivityLogs() {
     };
 
     const formatDate = (dateString: string) => {
+        if (!dateString) return '';
         const date = new Date(dateString);
         return date.toLocaleString('pt-BR', {
             day: '2-digit',
@@ -218,5 +225,7 @@ export default function ActivityLogs() {
         </div>
     );
 }
+
+
 
 

@@ -1,5 +1,6 @@
 // API functions for profile views tracking
-import { pb } from '@/lib/pocketbase';
+import { directus } from '@/lib/directus';
+import { readItems, createItem } from '@directus/sdk';
 
 export interface ProfileView {
     id: string;
@@ -10,7 +11,7 @@ export interface ProfileView {
     city?: string | null;
     country?: string | null;
     is_unique: boolean;
-    created: string;
+    date_created: string;
 }
 
 /**
@@ -69,19 +70,18 @@ export async function recordProfileView(profileId: string, viewerId?: string | n
             viewer_id: viewerId || null,
             viewer_session: sessionId,
             device_type: deviceType,
-            city: null, // Could be enhanced with geolocation
-            country: 'BR', // Default to Brazil
+            city: null,
+            country: 'BR',
             is_unique: unique,
         };
 
-        await pb.collection('profile_views').create(viewData);
-        saveViewToLocalStorage(viewData);
+        await directus.request(createItem('profile_views', viewData));
+        saveViewToLocalStorage({ ...viewData, date_created: new Date().toISOString() });
 
         return { success: true };
     } catch (err: any) {
-        console.warn('Error recording view in PocketBase, using localStorage:', err);
+        console.warn('Error recording view in Directus, using localStorage:', err);
 
-        // Fallback to localStorage
         const sessionId = getSessionId();
         const deviceType = detectDeviceType();
         const unique = isUniqueView(profileId);
@@ -94,6 +94,7 @@ export async function recordProfileView(profileId: string, viewerId?: string | n
             city: null,
             country: 'BR',
             is_unique: unique,
+            date_created: new Date().toISOString(),
         };
 
         saveViewToLocalStorage(viewData);
@@ -118,22 +119,25 @@ export async function getProfileViews(
     byDate: Array<{ date: string; count: number }>;
 }> {
     try {
-        const filterParts = [`profile_id = "${profileId}"`];
+        const filter: any = {
+            _and: [{ profile_id: { _eq: profileId } }]
+        };
 
         if (options?.startDate) {
-            filterParts.push(`created >= "${options.startDate.toISOString()}"`);
+            filter._and.push({ date_created: { _gte: options.startDate.toISOString() } });
         }
         if (options?.endDate) {
-            filterParts.push(`created <= "${options.endDate.toISOString()}"`);
+            filter._and.push({ date_created: { _lte: options.endDate.toISOString() } });
         }
 
-        const views = await pb.collection('profile_views').getFullList<ProfileView>({
-            filter: filterParts.join(' && '),
-        });
+        const views = await directus.request(readItems('profile_views', {
+            filter,
+            limit: -1 // careful with large datasets
+        }));
 
-        return processViewData(views, options?.uniqueOnly);
+        return processViewData(views as ProfileView[], options?.uniqueOnly);
     } catch (err: any) {
-        console.warn('Error fetching views from PocketBase, using localStorage:', err);
+        console.warn('Error fetching views from Directus, using localStorage:', err);
         return getViewsFromLocalStorage(profileId, options);
     }
 }
@@ -163,7 +167,8 @@ function processViewData(
     // Group by date
     const byDateMap: Record<string, number> = {};
     filtered.forEach(view => {
-        const date = new Date(view.created).toISOString().split('T')[0];
+        if (!view.date_created) return;
+        const date = new Date(view.date_created).toISOString().split('T')[0];
         byDateMap[date] = (byDateMap[date] || 0) + 1;
     });
 
@@ -174,13 +179,13 @@ function processViewData(
     return { total, unique, byDevice, byDate };
 }
 
-// LocalStorage fallback functions (types adjusted for PB compatibility)
+// LocalStorage fallback functions
 function saveViewToLocalStorage(view: any): void {
     const views = getViewsFromLocalStorageArray();
     const newView: ProfileView = {
         ...view,
         id: view.id || `view_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-        created: view.created || new Date().toISOString(),
+        date_created: view.date_created || new Date().toISOString(),
     } as ProfileView;
 
     views.push(newView);
@@ -208,11 +213,15 @@ function getViewsFromLocalStorage(
     let views = getViewsFromLocalStorageArray().filter(v => v.profile_id === profileId);
 
     if (options?.startDate) {
-        views = views.filter(v => new Date(v.created) >= options.startDate!);
+        views = views.filter(v => new Date(v.date_created) >= options.startDate!);
     }
     if (options?.endDate) {
-        views = views.filter(v => new Date(v.created) <= options.endDate!);
+        views = views.filter(v => new Date(v.date_created) <= options.endDate!);
     }
 
     return processViewData(views, options?.uniqueOnly);
 }
+
+
+
+

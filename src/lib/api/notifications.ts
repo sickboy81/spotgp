@@ -1,6 +1,11 @@
 // API functions for notifications system
-import { pb } from '@/lib/pocketbase';
+import { directus } from '@/lib/directus';
+import { readItems, createItem, updateItem, updateItems, deleteItem, aggregate } from '@directus/sdk';
 import { shouldUseMockAuth } from '../mock-auth';
+import { logger } from '../utils/logger';
+
+// ... (skipping unchanged parts)
+
 
 // Define types locally since we are moving away from Supabase types
 export interface Notification {
@@ -11,8 +16,8 @@ export interface Notification {
     message: string;
     link?: string;
     is_read: boolean;
-    created: string; // PocketBase uses 'created'
-    updated: string; // PocketBase uses 'updated'
+    date_created: string; // Directus uses 'date_created' by default
+    date_updated: string; // Directus uses 'date_updated' by default
 }
 
 export interface NotificationWithTime extends Notification {
@@ -34,18 +39,20 @@ export async function getUserNotifications(
     }
 
     try {
-        const filter = options?.unreadOnly
-            ? `user_id = "${userId}" && is_read = false`
-            : `user_id = "${userId}"`;
+        const filter: any = { user_id: { _eq: userId } };
+        if (options?.unreadOnly) {
+            filter.is_read = { _eq: false };
+        }
 
-        const result = await pb.collection('notifications').getList<Notification>(1, options?.limit || 50, {
+        const result = await directus.request(readItems('notifications', {
             filter,
-            sort: '-created',
-        });
+            sort: ['-date_created'],
+            limit: options?.limit || 50,
+        }));
 
-        return result.items.map(addTimeAgo);
+        return (result as Notification[]).map(addTimeAgo);
     } catch (err: any) {
-        console.warn('Error fetching notifications from PocketBase, using localStorage:', err);
+        logger.warn('Error fetching notifications from Directus, using localStorage:', err);
         return getNotificationsFromLocalStorage(userId, options);
     }
 }
@@ -59,10 +66,16 @@ export async function getUnreadNotificationCount(userId: string): Promise<number
     }
 
     try {
-        const result = await pb.collection('notifications').getList(1, 1, {
-            filter: `user_id = "${userId}" && is_read = false`,
-        });
-        return result.totalItems;
+        // Directus aggregate for count
+        const result = await directus.request(aggregate('notifications', {
+            aggregate: { count: '*' },
+            filter: {
+                user_id: { _eq: userId },
+                is_read: { _eq: false }
+            }
+        }));
+
+        return Number(result[0]?.count || 0);
     } catch {
         return getUnreadCountFromLocalStorage(userId);
     }
@@ -72,15 +85,15 @@ export async function getUnreadNotificationCount(userId: string): Promise<number
  * Create a new notification
  */
 export async function createNotification(
-    notification: Omit<Notification, 'id' | 'created' | 'updated'>
+    notification: Omit<Notification, 'id' | 'date_created' | 'date_updated'>
 ): Promise<{ success: boolean; notification?: Notification; error?: string }> {
     if (shouldUseMockAuth()) {
         const newNotification: Notification = {
             ...notification,
             id: `notif_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
             is_read: false,
-            created: new Date().toISOString(),
-            updated: new Date().toISOString(),
+            date_created: new Date().toISOString(),
+            date_updated: new Date().toISOString(),
         };
 
         saveNotificationToLocalStorage(newNotification);
@@ -88,20 +101,20 @@ export async function createNotification(
     }
 
     try {
-        const data = await pb.collection('notifications').create<Notification>({
+        const data = await directus.request(createItem('notifications', {
             ...notification,
             is_read: false,
-        });
+        }));
 
-        return { success: true, notification: data };
+        return { success: true, notification: data as Notification };
     } catch (err: any) {
-        console.warn('Error creating notification in PocketBase, using localStorage:', err);
+        logger.warn('Error creating notification in Directus, using localStorage:', err);
         const newNotification: Notification = {
             ...notification,
             id: `notif_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
             is_read: false,
-            created: new Date().toISOString(),
-            updated: new Date().toISOString(),
+            date_created: new Date().toISOString(),
+            date_updated: new Date().toISOString(),
         };
         saveNotificationToLocalStorage(newNotification);
         return { success: true, notification: newNotification };
@@ -118,11 +131,11 @@ export async function markNotificationAsRead(notificationId: string): Promise<{ 
     }
 
     try {
-        await pb.collection('notifications').update(notificationId, { is_read: true });
+        await directus.request(updateItem('notifications', notificationId, { is_read: true }));
         updateNotificationReadStatus(notificationId);
         return { success: true };
     } catch (err: any) {
-        console.warn('Error marking notification as read in PocketBase, using localStorage:', err);
+        logger.warn('Error marking notification as read in Directus, using localStorage:', err);
         updateNotificationReadStatus(notificationId);
         return { success: true };
     }
@@ -138,20 +151,24 @@ export async function markAllNotificationsAsRead(userId: string): Promise<{ succ
     }
 
     try {
-        // Fetch all unread first (limit 50 to avoid massive updates in one go)
-        const unread = await pb.collection('notifications').getList<Notification>(1, 50, {
-            filter: `user_id = "${userId}" && is_read = false`,
-        });
+        // Fetch unread IDs first
+        const unread = await directus.request(readItems('notifications', {
+            filter: {
+                user_id: { _eq: userId },
+                is_read: { _eq: false }
+            },
+            limit: 50,
+            fields: ['id']
+        }));
 
-        // Parallel update
-        await Promise.all(unread.items.map(n =>
-            pb.collection('notifications').update(n.id, { is_read: true })
-        ));
+        if (unread.length > 0) {
+            await directus.request(updateItems('notifications', unread.map((n: any) => n.id), { is_read: true }));
+        }
 
         markAllAsReadInLocalStorage(userId);
         return { success: true };
     } catch (err: any) {
-        console.warn('Error marking all notifications as read in PocketBase, using localStorage:', err);
+        console.warn('Error marking all notifications as read in Directus, using localStorage:', err);
         markAllAsReadInLocalStorage(userId);
         return { success: true };
     }
@@ -167,11 +184,11 @@ export async function deleteNotification(notificationId: string): Promise<{ succ
     }
 
     try {
-        await pb.collection('notifications').delete(notificationId);
+        await directus.request(deleteItem('notifications', notificationId));
         deleteNotificationFromLocalStorage(notificationId);
         return { success: true };
     } catch (err: any) {
-        console.warn('Error deleting notification in PocketBase, using localStorage:', err);
+        logger.warn('Error deleting notification in Directus, using localStorage:', err);
         deleteNotificationFromLocalStorage(notificationId);
         return { success: true };
     }
@@ -182,7 +199,8 @@ export async function deleteNotification(notificationId: string): Promise<{ succ
  */
 function addTimeAgo(notification: Notification): NotificationWithTime {
     const now = new Date();
-    const created = new Date(notification.created);
+    // Use date_created
+    const created = new Date(notification.date_created);
     const diffMs = now.getTime() - created.getTime();
     const diffMins = Math.floor(diffMs / 60000);
     const diffHours = Math.floor(diffMs / 3600000);

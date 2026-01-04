@@ -1,5 +1,6 @@
 // API functions for reports/denuncias system
-import { pb } from '@/lib/pocketbase';
+import { directus } from '@/lib/directus';
+import { readItems, createItem, updateItem, deleteItem, readItem } from '@directus/sdk';
 
 export interface Report {
     id: string;
@@ -10,8 +11,8 @@ export interface Report {
     status: 'pending' | 'reviewed' | 'resolved' | 'dismissed';
     reviewed_by?: string | null;
     reviewed_at?: string | null;
-    created: string;
-    updated: string;
+    date_created: string;
+    date_updated: string;
 }
 
 export interface ReportWithProfile extends Report {
@@ -37,37 +38,46 @@ export async function getReports(filters?: {
     offset?: number;
 }): Promise<ReportWithProfile[]> {
     try {
-        const filterParts: string[] = [];
-        if (filters?.status) filterParts.push(`status = "${filters.status}"`);
-        if (filters?.type) filterParts.push(`type = "${filters.type}"`);
-        if (filters?.profileId) filterParts.push(`profile_id = "${filters.profileId}"`);
+        const filter: any = {};
+        const filterAnd: any[] = [];
 
-        const page = filters?.offset ? Math.floor(filters.offset / (filters.limit || 10)) + 1 : 1;
-        const perPage = filters?.limit || 10;
+        if (filters?.status) filterAnd.push({ status: { _eq: filters.status } });
+        if (filters?.type) filterAnd.push({ type: { _eq: filters.type } });
+        if (filters?.profileId) filterAnd.push({ profile_id: { _eq: filters.profileId } });
 
-        // Fetch reports
-        const result = await pb.collection('reports').getList<Report>(page, perPage, {
-            filter: filterParts.join(' && '),
-            sort: '-created',
-        });
+        if (filterAnd.length > 0) {
+            filter._and = filterAnd;
+        }
 
-        // Fetch related profiles manually to ensure we get what we need regardless of DB relation setup
-        // In a mature PB setup, we would use 'expand'
-        const reportsWithProfiles = await Promise.all(result.items.map(async (report) => {
+        const limit = filters?.limit || 10;
+        const page = filters?.offset ? Math.floor(filters.offset / limit) + 1 : 1;
+
+        // Fetch reports with Directus
+        // We can fetch related profiles if relationships are set up, but let's assume we need manual fetching for robust migration like before
+        const result = await directus.request(readItems('reports', {
+            filter,
+            sort: ['-date_created'],
+            limit,
+            page
+        }));
+
+        const reportsWithProfiles = await Promise.all(result.map(async (report: any) => {
             let reportedProfile = null;
             let reporterProfile = null;
 
             try {
                 if (report.profile_id) {
-                    const p = await pb.collection('profiles').getOne(report.profile_id);
+                    const p: any = await directus.request(readItem('profiles', report.profile_id));
                     reportedProfile = { id: p.id, display_name: p.display_name, ad_id: p.ad_id };
                 }
             } catch (e) { /* ignore missing profile */ }
 
             try {
                 if (report.reported_by) {
-                    const p = await pb.collection('profiles').getOne(report.reported_by); // or users
-                    reporterProfile = { id: p.id, email: (p as any).email };
+                    // Assuming reported_by is profile ID or User ID. PocketBase code fetched 'profiles'.
+                    // Let's assume it references a profile ID.
+                    const p: any = await directus.request(readItem('profiles', report.reported_by));
+                    reporterProfile = { id: p.id, email: p.email }; // Profile usually doesn't have email in public return?
                 }
             } catch (e) { /* ignore missing reporter */ }
 
@@ -80,7 +90,7 @@ export async function getReports(filters?: {
 
         return reportsWithProfiles;
     } catch (err: any) {
-        console.warn('Error fetching reports from PocketBase, using localStorage:', err);
+        console.warn('Error fetching reports from Directus, using localStorage:', err);
         return getReportsFromLocalStorage(filters);
     }
 }
@@ -90,22 +100,22 @@ export async function getReports(filters?: {
  */
 export async function getReportById(reportId: string): Promise<ReportWithProfile | null> {
     try {
-        const report = await pb.collection('reports').getOne<Report>(reportId);
+        const report: any = await directus.request(readItem('reports', reportId));
 
         let reportedProfile = null;
         let reporterProfile = null;
 
         try {
             if (report.profile_id) {
-                const p = await pb.collection('profiles').getOne(report.profile_id);
+                const p: any = await directus.request(readItem('profiles', report.profile_id));
                 reportedProfile = { id: p.id, display_name: p.display_name, ad_id: p.ad_id };
             }
         } catch (e) { /* ignore */ }
 
         try {
             if (report.reported_by) {
-                const p = await pb.collection('profiles').getOne(report.reported_by);
-                reporterProfile = { id: p.id, email: (p as any).email };
+                const p: any = await directus.request(readItem('profiles', report.reported_by));
+                reporterProfile = { id: p.id, email: p.email };
             }
         } catch (e) { /* ignore */ }
 
@@ -115,7 +125,7 @@ export async function getReportById(reportId: string): Promise<ReportWithProfile
             reporter_profile: reporterProfile,
         } as ReportWithProfile;
     } catch (err: any) {
-        console.warn('Error fetching report from PocketBase, using localStorage:', err);
+        console.warn('Error fetching report from Directus, using localStorage:', err);
         const reports = getReportsFromLocalStorage();
         return reports.find(r => r.id === reportId) || null;
     }
@@ -124,21 +134,21 @@ export async function getReportById(reportId: string): Promise<ReportWithProfile
 /**
  * Create a new report
  */
-export async function createReport(report: Omit<Report, 'id' | 'created' | 'updated'>): Promise<{ success: boolean; data?: Report; error?: string }> {
+export async function createReport(report: Omit<Report, 'id' | 'date_created' | 'date_updated'>): Promise<{ success: boolean; data?: Report; error?: string }> {
     try {
-        const data = await pb.collection('reports').create<Report>(report);
-        saveReportToLocalStorage(data);
-        return { success: true, data };
+        const data = await directus.request(createItem('reports', report));
+        saveReportToLocalStorage(data as Report);
+        return { success: true, data: data as Report };
     } catch (err: any) {
-        console.warn('Error creating report in PocketBase, using localStorage:', err);
+        console.warn('Error creating report in Directus, using localStorage:', err);
 
         // Fallback
         const newReport: Report = {
             ...report,
             id: `report-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
             status: report.status || 'pending',
-            created: new Date().toISOString(),
-            updated: new Date().toISOString(),
+            date_created: new Date().toISOString(),
+            date_updated: new Date().toISOString(),
         };
 
         saveReportToLocalStorage(newReport);
@@ -154,11 +164,11 @@ export async function updateReport(
     updates: Partial<Report>
 ): Promise<{ success: boolean; data?: Report; error?: string }> {
     try {
-        const data = await pb.collection('reports').update<Report>(reportId, updates);
-        updateReportInLocalStorage(reportId, data);
-        return { success: true, data };
+        const data = await directus.request(updateItem('reports', reportId, updates));
+        updateReportInLocalStorage(reportId, data as Report);
+        return { success: true, data: data as Report };
     } catch (err: any) {
-        console.warn('Error updating report in PocketBase, using localStorage:', err);
+        console.warn('Error updating report in Directus, using localStorage:', err);
 
         const reports = getReportsFromLocalStorage();
         const index = reports.findIndex(r => r.id === reportId);
@@ -169,7 +179,7 @@ export async function updateReport(
         const updatedReport = {
             ...reports[index],
             ...updates,
-            updated: new Date().toISOString(),
+            date_updated: new Date().toISOString(),
         };
 
         updateReportInLocalStorage(reportId, updatedReport);
@@ -182,11 +192,11 @@ export async function updateReport(
  */
 export async function deleteReport(reportId: string): Promise<{ success: boolean; error?: string }> {
     try {
-        await pb.collection('reports').delete(reportId);
+        await directus.request(deleteItem('reports', reportId));
         deleteReportFromLocalStorage(reportId);
         return { success: true };
     } catch (err: any) {
-        console.warn('Error deleting report from PocketBase, using localStorage:', err);
+        console.warn('Error deleting report from Directus, using localStorage:', err);
         deleteReportFromLocalStorage(reportId);
         return { success: true };
     }

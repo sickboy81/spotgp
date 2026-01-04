@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { pb } from '@/lib/pocketbase';
+import { directus } from '@/lib/directus';
+import { registerUser, createItem, readMe } from '@directus/sdk';
 import { cn, generateUniqueAdId } from '@/lib/utils';
 import { motion } from 'framer-motion';
 import {
@@ -10,11 +11,14 @@ import {
     setMockSession
 } from '@/lib/mock-auth';
 import { isValidEmail, isStrongPassword, isValidPhone } from '@/lib/utils/validation';
+import { Eye, EyeOff } from 'lucide-react';
 
 export default function Register() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [showPassword, setShowPassword] = useState(false);
     const [confirmPassword, setConfirmPassword] = useState('');
+    const [showConfirmPassword, setShowConfirmPassword] = useState(false);
     const [displayName, setDisplayName] = useState('');
     const [phone, setPhone] = useState('');
     const [loading, setLoading] = useState(false);
@@ -66,7 +70,7 @@ export default function Register() {
                 setMockSession(mockSession);
 
                 // Also create profile in localStorage for consistency
-                const profileKey = `mock_profile_${mockUser.id}`;
+                const profileKey = `mock_profile_${mockUser.id} `;
                 const adId = generateUniqueAdId();
                 localStorage.setItem(profileKey, JSON.stringify({
                     id: mockUser.id,
@@ -82,40 +86,35 @@ export default function Register() {
                 // Reload page to update auth state
                 window.location.href = '/';
             } else {
-                // Use real PocketBase registration
-                // 1. Create User
-                const user = await pb.collection('users').create({
-                    email,
-                    password,
-                    passwordConfirm: password,
-                    name: displayName,
-                    role: role, // Ensure 'role' field exists in 'users' collection
-                });
+                // Use real Directus registration
+                // 1. Register User
+                // Note: Role assignment depends on Directus Project Settings for Public Registration
+                await directus.request(registerUser(email, password, {
+                    first_name: displayName,
+                }));
 
-                // 2. Generate unique advertisement ID
+                // 2. Authenticate to establish session
+                await directus.login({ email, password });
+
+                // 3. Create Profile
                 const adId = generateUniqueAdId();
-
-                // 3. Create Profile with the same ID as User (if allowed) or linked
-                // We attempt to set ID = user.id so getOne(userId) works.
-                // If not allowed, we might need to rely on a 'user' field relation.
                 try {
-                    await pb.collection('profiles').create({
-                        id: user.id,
-                        user: user.id, // Relation to user (if schema has it)
+                    // Get current user ID to link profile
+                    const user = await directus.request(readMe());
+
+                    await directus.request(createItem('profiles', {
+                        id: user.id, // Try to match ID if possible, or let it generate
+                        user: user.id,
                         ad_id: adId,
                         display_name: displayName,
                         role: role,
                         phone: phone || null,
-                        email: email, // redundant but useful
-                    });
+                        email: email,
+                    }));
                 } catch (profileErr) {
-                    console.error("Profile creation failed, checking if it was auto-created", profileErr);
-                    // In some PB setups, a hook might create the profile. 
-                    // Or if setting ID is forbidden, we should just correct our data access patterns later.
+                    console.error("Profile creation failed", profileErr);
+                    // Allow continuing as login succeeded
                 }
-
-                // 4. Authenticate to establish session
-                await pb.collection('users').authWithPassword(email, password);
 
                 navigate('/');
             }
@@ -155,6 +154,7 @@ export default function Register() {
                         <input
                             type="text"
                             required
+                            maxLength={100}
                             className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                             value={displayName}
                             onChange={(e) => setDisplayName(e.target.value)}
@@ -167,6 +167,7 @@ export default function Register() {
                         <input
                             type="email"
                             required
+                            maxLength={255}
                             className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                             value={email}
                             onChange={(e) => setEmail(e.target.value)}
@@ -179,6 +180,7 @@ export default function Register() {
                         <input
                             type="tel"
                             required
+                            maxLength={20}
                             className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                             value={phone}
                             onChange={(e) => {
@@ -193,28 +195,58 @@ export default function Register() {
 
                     <div>
                         <label className="block text-sm font-medium mb-1">Senha</label>
-                        <input
-                            type="password"
-                            required
-                            className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                            value={password}
-                            onChange={(e) => setPassword(e.target.value)}
-                            placeholder="********"
-                            minLength={6}
-                        />
+                        <div className="relative">
+                            <input
+                                type={showPassword ? "text" : "password"}
+                                required
+                                maxLength={128}
+                                className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring pr-10"
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                                placeholder="********"
+                                minLength={6}
+                            />
+                            <button
+                                type="button"
+                                onClick={() => setShowPassword(!showPassword)}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                                tabIndex={-1}
+                            >
+                                {showPassword ? (
+                                    <EyeOff className="h-4 w-4" />
+                                ) : (
+                                    <Eye className="h-4 w-4" />
+                                )}
+                            </button>
+                        </div>
                     </div>
 
                     <div>
                         <label className="block text-sm font-medium mb-1">Confirmar Senha</label>
-                        <input
-                            type="password"
-                            required
-                            className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                            value={confirmPassword}
-                            onChange={(e) => setConfirmPassword(e.target.value)}
-                            placeholder="********"
-                            minLength={6}
-                        />
+                        <div className="relative">
+                            <input
+                                type={showConfirmPassword ? "text" : "password"}
+                                required
+                                maxLength={128}
+                                className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring pr-10"
+                                value={confirmPassword}
+                                onChange={(e) => setConfirmPassword(e.target.value)}
+                                placeholder="********"
+                                minLength={6}
+                            />
+                            <button
+                                type="button"
+                                onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                                tabIndex={-1}
+                            >
+                                {showConfirmPassword ? (
+                                    <EyeOff className="h-4 w-4" />
+                                ) : (
+                                    <Eye className="h-4 w-4" />
+                                )}
+                            </button>
+                        </div>
                     </div>
 
                     <button

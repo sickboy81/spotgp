@@ -1,18 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { pb } from '@/lib/pocketbase';
+import { directus } from '@/lib/directus';
 import { cn } from '@/lib/utils';
 import { motion } from 'framer-motion';
 import { shouldUseMockAuth, authenticateMockUser, createMockSession, setMockSession, initDefaultAdmin } from '@/lib/mock-auth';
 import { isValidEmail, checkRateLimit } from '@/lib/utils/validation';
+import { useAuth } from '@/hooks/useAuth';
+
+import { Eye, EyeOff } from 'lucide-react';
 
 export default function Login() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const navigate = useNavigate();
     const useMock = shouldUseMockAuth();
+    const { refreshUser } = useAuth();
 
     // Initialize default admin when component mounts (if using mock)
     useEffect(() => {
@@ -63,6 +68,8 @@ export default function Login() {
                 // Small delay to ensure localStorage is updated
                 await new Promise(resolve => setTimeout(resolve, 100));
 
+                await refreshUser(); // Update context
+
                 // Navigate based on role
                 if (mockUser.role === 'super_admin') {
                     window.location.href = '/admin';
@@ -70,12 +77,16 @@ export default function Login() {
                     window.location.href = '/dashboard';
                 }
             } else {
-                // Use real PocketBase auth
-                await pb.collection('users').authWithPassword(email, password);
+                // Use real Directus auth
+                await directus.login({ email, password });
+                await refreshUser(); // Update context
                 navigate('/');
             }
         } catch (err: any) {
-            setError(err.message || 'Erro ao entrar. Verifique suas credenciais.');
+            console.error(err);
+            // Directus specific error handling if needed
+            const msg = err?.errors?.[0]?.message || err.message || 'Erro ao entrar. Verifique suas credenciais.';
+            setError(msg);
         } finally {
             setLoading(false);
         }
@@ -113,6 +124,8 @@ export default function Login() {
                         <input
                             type="email"
                             required
+                            autoComplete="username"
+                            maxLength={255}
                             className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                             value={email}
                             onChange={(e) => setEmail(e.target.value)}
@@ -122,14 +135,30 @@ export default function Login() {
 
                     <div>
                         <label className="block text-sm font-medium mb-1">Senha</label>
-                        <input
-                            type="password"
-                            required
-                            className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                            value={password}
-                            onChange={(e) => setPassword(e.target.value)}
-                            placeholder="••••••••"
-                        />
+                        <div className="relative">
+                            <input
+                                type={showPassword ? "text" : "password"}
+                                required
+                                autoComplete="current-password"
+                                maxLength={128}
+                                className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring pr-10"
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                                placeholder="••••••••"
+                            />
+                            <button
+                                type="button"
+                                onClick={() => setShowPassword(!showPassword)}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                                tabIndex={-1}
+                            >
+                                {showPassword ? (
+                                    <EyeOff className="h-4 w-4" />
+                                ) : (
+                                    <Eye className="h-4 w-4" />
+                                )}
+                            </button>
+                        </div>
                     </div>
 
                     <button

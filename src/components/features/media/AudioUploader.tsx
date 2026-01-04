@@ -1,6 +1,8 @@
 import { useState, useRef } from 'react';
 import { Upload, Mic, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { validateFile, FILE_VALIDATION_CONFIGS } from '@/lib/utils/file-validation';
+import { logger } from '@/lib/utils/logger';
 
 interface AudioUploaderProps {
     audioUrl?: string;
@@ -38,7 +40,7 @@ export function AudioUploader({ audioUrl, onAudioChange }: AudioUploaderProps) {
             mediaRecorder.start();
             setIsRecording(true);
         } catch (error) {
-            console.error('Error accessing microphone:', error);
+            logger.error('Error accessing microphone:', error);
             alert('Não foi possível acessar o microfone. Verifique as permissões do navegador.');
         }
     };
@@ -50,9 +52,15 @@ export function AudioUploader({ audioUrl, onAudioChange }: AudioUploaderProps) {
         }
     };
 
-    const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
-        if (file && file.type.startsWith('audio/')) {
+        if (file) {
+            // Advanced validation with magic bytes
+            const validation = await validateFile(file, FILE_VALIDATION_CONFIGS.audio);
+            if (!validation.valid) {
+                alert(validation.errors.join('. '));
+                return;
+            }
             onAudioChange(file);
         }
     };
@@ -126,5 +134,9 @@ export function AudioUploader({ audioUrl, onAudioChange }: AudioUploaderProps) {
         </div>
     );
 }
+
+
+
+
 
 

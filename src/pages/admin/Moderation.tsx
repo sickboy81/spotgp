@@ -220,7 +220,7 @@ export default function Moderation() {
                                         )}
                                         <p className="text-sm text-muted-foreground mb-2">{report.description}</p>
                                         <p className="text-xs text-muted-foreground mt-2">
-                                            {formatDate(report.created)}
+                                            {formatDate(report.date_created)}
                                         </p>
                                     </div>
                                 </div>

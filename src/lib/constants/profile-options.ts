@@ -1,6 +1,9 @@
 // Profile options constants
-export const HAIR_COLORS = ['Loira', 'Morena', 'Ruiva', 'Preto', 'Colorido'] as const;
-export const BODY_TYPES = ['Magro', 'Mignon', 'Fitness', 'Curvilínea', 'Plus Size'] as const;
+export const HAIR_COLORS = ['Morenas', 'Loiras', 'Ruivas'] as const;
+export const BODY_TYPES = ['Gordinhas', 'Magras'] as const;
+export const STATURES = ['Altas', 'Mignon'] as const;
+export const BREAST_TYPES = ['Peitudas', 'Seios naturais'] as const;
+export const PUBIS_TYPES = ['Peludas', 'Pubis depilado'] as const;
 
 // Local de atendimento
 export const SERVICE_LOCATIONS = [
@@ -19,6 +22,9 @@ export const GENDERS = ['Mulher', 'Trans', 'Homem'] as const;
 
 export type HairColor = typeof HAIR_COLORS[number];
 export type BodyType = typeof BODY_TYPES[number];
+export type Stature = typeof STATURES[number];
+export type BreastType = typeof BREAST_TYPES[number];
+export type PubisType = typeof PUBIS_TYPES[number];
 export type Ethnicity = typeof ETHNICITIES[number];
 export type PaymentMethod = typeof PAYMENT_METHODS[number];
 export type Gender = typeof GENDERS[number];

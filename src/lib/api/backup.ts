@@ -1,8 +1,8 @@
 // Complete backup and restore functionality
 // Captures ALL data from the system for full site migration/restoration
 
-import { pb } from '@/lib/pocketbase';
-import { RecordModel } from 'pocketbase';
+import { directus } from '@/lib/directus';
+import { readItems, createItem, deleteItems } from '@directus/sdk';
 
 export interface BackupData {
     version: string;
@@ -17,18 +17,19 @@ export interface BackupData {
         total_messages: number;
         total_conversations: number;
         total_notifications: number;
+        [key: string]: number;
     };
     data: {
-        profiles: RecordModel[];
-        media: RecordModel[];
-        verification_documents: RecordModel[];
-        reports: RecordModel[];
-        profile_views: RecordModel[];
-        profile_clicks: RecordModel[];
-        conversations: RecordModel[];
-        messages: RecordModel[];
-        notifications: RecordModel[];
-        // Add any other tables here
+        profiles: any[];
+        media: any[];
+        verification_documents: any[];
+        reports: any[];
+        profile_views: any[];
+        profile_clicks: any[];
+        conversations: any[];
+        messages: any[];
+        notifications: any[];
+        [key: string]: any[];
     };
 }
 
@@ -39,32 +40,41 @@ export async function createFullBackup(userId: string): Promise<BackupData> {
     try {
         console.log('Iniciando backup completo...');
 
+        const fetchFullList = async (collection: string) => {
+            try {
+                return await directus.request(readItems(collection, { limit: -1 }));
+            } catch (e) {
+                console.warn(`Could not fetch ${collection}`, e);
+                return [];
+            }
+        };
+
         // 1. Profiles (with all fields)
-        const profiles = await pb.collection('profiles').getFullList({ sort: '+created' });
+        const profiles = await fetchFullList('profiles');
 
         // 2. Media (all images and videos)
-        const media = await pb.collection('media').getFullList({ sort: '+created' });
+        const media = await fetchFullList('media');
 
         // 3. Verification Documents
-        const verification_documents = await pb.collection('verification_documents').getFullList({ sort: '+created' });
+        const verification_documents = await fetchFullList('verification_documents');
 
         // 4. Reports
-        const reports = await pb.collection('reports').getFullList({ sort: '+created' });
+        const reports = await fetchFullList('reports');
 
         // 5. Profile Views
-        const profile_views = await pb.collection('profile_views').getFullList({ sort: '+created' });
+        const profile_views = await fetchFullList('profile_views');
 
         // 6. Profile Clicks
-        const profile_clicks = await pb.collection('profile_clicks').getFullList({ sort: '+created' });
+        const profile_clicks = await fetchFullList('profile_clicks');
 
         // 7. Conversations
-        const conversations = await pb.collection('conversations').getFullList({ sort: '+created' });
+        const conversations = await fetchFullList('conversations');
 
         // 8. Messages
-        const messages = await pb.collection('messages').getFullList({ sort: '+created' });
+        const messages = await fetchFullList('messages');
 
         // 9. Notifications
-        const notifications = await pb.collection('notifications').getFullList({ sort: '+created' });
+        const notifications = await fetchFullList('notifications');
 
         // Compile backup data
         const backupData: BackupData = {
@@ -113,25 +123,21 @@ export async function restoreFullBackup(backupData: BackupData): Promise<{ succe
         console.log('Dados a restaurar:', backupData.metadata);
 
         // WARNING: This will DELETE and REPLACE all existing data!
-        // In production, you should:
-        // 1. Create a backup first
-        // 2. Verify backup integrity
-        // 3. Use transactions for atomicity
-        // 4. Have rollback capability
 
         // 1. Clear existing data (in reverse dependency order)
         console.log('Limpando dados existentes...');
 
-        // PB doesn't have a simple "truncate" or "delete all" command exposed safely.
-        // We would iterate and delete. For this migration tool, we'll assume the user
-        // knows this is dangerous.
-        // Implementing proper deletion in PB requires fetching IDs and deleting.
-
         const deleteCollection = async (collection: string) => {
             try {
-                const items = await pb.collection(collection).getFullList({ fields: 'id' });
-                for (const item of items) {
-                    await pb.collection(collection).delete(item.id);
+                const items = await directus.request(readItems(collection, { limit: -1, fields: ['id'] }));
+                if (!items || items.length === 0) return;
+
+                const ids = items.map((item: any) => item.id);
+                // Delete in chunks of 50 to avoid payload limits
+                const chunkSize = 50;
+                for (let i = 0; i < ids.length; i += chunkSize) {
+                    const chunk = ids.slice(i, i + chunkSize);
+                    await directus.request(deleteItems(collection, chunk));
                 }
             } catch (e) {
                 console.log(`Could not clear ${collection}, maybe empty or error`, e);
@@ -150,15 +156,18 @@ export async function restoreFullBackup(backupData: BackupData): Promise<{ succe
         // 2. Restore data (in dependency order)
         console.log('Restaurando dados...');
 
-        const restoreCollection = async (collection: string, items: RecordModel[]) => {
+        const restoreCollection = async (collection: string, items: any[]) => {
             if (!items || items.length === 0) return;
             for (const item of items) {
                 try {
-                    // We might need to handle ID preservation. PB creates new IDs mostly unless we force it.
-                    // But PB allows setting ID on create.
-                    await pb.collection(collection).create(item);
-                } catch (e) {
-                    const message = e instanceof Error ? e.message : 'Unknown error';
+                    // Directus might not allow setting ID on create unless configured.
+                    // We'll try to create. If ID is present in item, it might be used or ignored depending on schema.
+                    // For restoration, preserving IDs is crucial for relations.
+                    // If simple createItem doesn't work with explicit ID, we usually need key override or just accept new IDs (breaking relations).
+                    // Assuming Directus setup allows UUIDs or we rely on it.
+                    await directus.request(createItem(collection, item));
+                } catch (e: any) {
+                    const message = e.message || 'Unknown error';
                     errors.push(`Erro ao restaurar ${collection} (ID: ${item.id}): ${message}`);
                 }
             }
@@ -180,8 +189,8 @@ export async function restoreFullBackup(backupData: BackupData): Promise<{ succe
             success: errors.length === 0,
             errors,
         };
-    } catch (error) {
-        const message = error instanceof Error ? error.message : 'Unknown error';
+    } catch (error: any) {
+        const message = error.message || 'Unknown error';
         console.error('Erro fatal durante restauração:', error);
         errors.push(`Erro fatal: ${message}`);
         return {

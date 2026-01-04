@@ -97,7 +97,7 @@ export function ConversationList({ onSelectConversation, selectedConversationId 
                                             </h3>
                                             {conversation.last_message && (
                                                 <span className="text-xs text-muted-foreground flex-shrink-0 ml-2">
-                                                    {new Date(conversation.created).toLocaleDateString()}
+                                                    {new Date(conversation.date_created).toLocaleDateString()}
                                                 </span>
                                             )}
                                         </div>
@@ -121,5 +121,9 @@ export function ConversationList({ onSelectConversation, selectedConversationId 
         </div>
     );
 }
+
+
+
+
 
 

@@ -25,9 +25,8 @@ export function Logo({ className, size = 'md', showText = true }: LogoProps) {
                 <img
                     src="/logo.png"
                     alt="SpotGP"
-                    width={dimensions.width}
-                    height={dimensions.height}
-                    className="flex-shrink-0 object-contain md:scale-110 max-w-full h-auto"
+                    // Use standard responsive sizing
+                    className="flex-shrink-0 object-contain max-h-[50px] md:max-h-[60px] w-auto"
                     onError={() => setImageError(true)}
                 />
             ) : (

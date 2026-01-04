@@ -26,3 +26,7 @@ Consulte `scripts/generate-icons.md` para instruções detalhadas.
 Enquanto os ícones não são gerados, o app funcionará, mas pode não aparecer corretamente quando instalado. Gere os ícones usando uma das opções descritas em `scripts/generate-icons.md`.
 
 
+
+
+
+

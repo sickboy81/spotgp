@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Plus, Edit, Trash2, CheckCircle, XCircle, Search, User } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { pb } from '@/lib/pocketbase';
+import { directus } from '@/lib/directus';
+import { readItems, createItem, updateItem, deleteItem } from '@directus/sdk';
 import { getPricingConfig, savePricingConfig, resetPricingConfig, type BoostPlan as PricingBoostPlan, type PricingConfig } from '@/lib/utils/pricing-config';
-import { RecordModel } from 'pocketbase';
 
-interface Plan extends RecordModel {
+interface Plan {
+    id: string;
     name: string;
     description: string;
     price: number;
@@ -70,12 +71,12 @@ export default function PlansManagement() {
 
     const loadPlans = useCallback(async () => {
         try {
-            const result = await pb.collection('plans').getFullList<Plan>({
-                sort: 'price',
-            });
-            setPlans(result);
+            const result = await directus.request(readItems('plans', {
+                sort: ['price'],
+            }));
+            setPlans(result as Plan[]);
         } catch (err) {
-            console.warn('Error loading plans (collection might not exist yet):', err);
+            console.warn('Error loading plans:', err);
             setPlans([]);
         }
     }, []);
@@ -83,18 +84,26 @@ export default function PlansManagement() {
     const loadUserPlans = useCallback(async () => {
         try {
             try {
-                const userPlansData = await pb.collection('user_plans').getFullList({
-                    sort: '-created',
-                    expand: 'user_id'
-                });
+                // Fetch user_plans with expanded user_id and plan_id details
+                // Assuming user_id relates to profiles or directus_users
+                const userPlansData = await directus.request(readItems('user_plans', {
+                    sort: ['-date_created'],
+                    fields: [
+                        '*',
+                        'user_id.display_name',
+                        'user_id.email',
+                        // If plan_id is also a relation to 'plans' collection
+                        'plan_id.name'
+                    ]
+                }));
 
-                const plansWithDetails: UserPlan[] = userPlansData.map((up: RecordModel) => ({
+                const plansWithDetails: UserPlan[] = userPlansData.map((up: any) => ({
                     id: up.id,
-                    user_id: up.user_id,
-                    user_name: up.expand?.user_id?.display_name || 'Desconhecido',
-                    user_email: up.expand?.user_id?.email,
-                    plan_id: up.plan_id,
-                    plan_name: plans.find(p => p.id === up.plan_id)?.name || 'Plano Arquivado',
+                    user_id: typeof up.user_id === 'object' ? up.user_id?.id : up.user_id,
+                    user_name: up.user_id?.display_name || 'Desconhecido',
+                    user_email: up.user_id?.email,
+                    plan_id: typeof up.plan_id === 'object' ? up.plan_id?.id : up.plan_id,
+                    plan_name: up.plan_id?.name || plans.find(p => p.id === up.plan_id)?.name || 'Plano Arquivado',
                     start_date: up.start_date,
                     end_date: up.end_date,
                     is_active: up.is_active,
@@ -152,9 +161,9 @@ export default function PlansManagement() {
             };
 
             if (editingPlan) {
-                await pb.collection('plans').update(editingPlan.id, data);
+                await directus.request(updateItem('plans', editingPlan.id, data));
             } else {
-                await pb.collection('plans').create(data);
+                await directus.request(createItem('plans', data));
             }
 
             await loadPlans();
@@ -203,7 +212,7 @@ export default function PlansManagement() {
     const handleDeletePlan = async (planId: string) => {
         if (confirm('Tem certeza que deseja deletar este plano?')) {
             try {
-                await pb.collection('plans').delete(planId);
+                await directus.request(deleteItem('plans', planId));
                 await loadPlans();
             } catch (err: unknown) {
                 alert(`Erro ao deletar plano: ${(err as Error).message}`);
@@ -213,7 +222,7 @@ export default function PlansManagement() {
 
     const handleTogglePlanActive = async (plan: Plan) => {
         try {
-            await pb.collection('plans').update(plan.id, { is_active: !plan.is_active });
+            await directus.request(updateItem('plans', plan.id, { is_active: !plan.is_active }));
             await loadPlans();
         } catch (err: unknown) {
             alert(`Erro ao atualizar plano: ${(err as Error).message}`);

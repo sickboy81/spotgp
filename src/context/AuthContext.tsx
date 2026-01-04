@@ -1,61 +1,90 @@
 import React, { createContext, useEffect, useState } from 'react';
-import { AuthModel } from 'pocketbase'; // We'll infer or import this
-import { pb } from '@/lib/pocketbase';
+import { directus } from '@/lib/directus';
+import { readMe } from '@directus/sdk';
+import { logger } from '@/lib/utils/logger';
 
-// PocketBase User Model (approximate, based on Supabase profiles)
-export type User = AuthModel & {
+// Adapted User Model for Directus
+export type User = {
     id: string;
     email: string;
-    name?: string;
+    first_name?: string;
+    last_name?: string;
     avatar?: string;
-    role?: 'visitor' | 'advertiser' | 'super_admin';
-    // Add other fields from profiles table
+    role?: string;
+    // Add other fields as needed
+    [key: string]: any;
 };
 
 export interface AuthContextType {
     user: User | null;
-    token: string | null;
-    role: string | null; // extracted from user
+    token: string | null; // Directus handles this internally with cookies
+    role: string | null;
     loading: boolean;
-    signOut: () => void;
+    signOut: () => Promise<void>;
+    refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-    const [user, setUser] = useState<User | null>(pb.authStore.model as User | null);
-    const [token, setToken] = useState<string | null>(pb.authStore.token);
+    const [user, setUser] = useState<User | null>(null);
     const [role, setRole] = useState<string | null>(null);
-    const [loading, setLoading] = useState(true); // PB is sync, but we might want to fetch extra profile data
+    const [loading, setLoading] = useState(true);
+
+    const refreshUser = async () => {
+        try {
+            // Fetch user AND role name
+            const userData = await directus.request(readMe({
+                fields: ['*', 'role.name']
+            }));
+
+            setUser(userData as User);
+
+            // Normalize Role Name
+            const roleName = userData.role?.name || '';
+            let appRole = 'visitor';
+
+            if (roleName === 'Administrator' || roleName === 'Admin') {
+                appRole = 'super_admin';
+            } else if (roleName === 'App User' || roleName === 'Advertiser') {
+                appRole = 'advertiser';
+            }
+
+            setRole(appRole);
+        } catch (error: any) {
+            const isAuthError = error?.response?.status === 401 ||
+                error?.response?.status === 403 ||
+                error?.errors?.[0]?.extensions?.code === 'TOKEN_EXPIRED' ||
+                error?.message === 'Invalid user credentials.';
+
+            if (isAuthError) {
+                // Expected behavior for unauthenticated users, clear state without error log
+                setUser(null);
+                setRole(null);
+            } else {
+                logger.error('Auth refresh error:', error);
+            }
+        } finally {
+            setLoading(false);
+        }
+    };
 
     useEffect(() => {
-        // Initial state
-        const model = pb.authStore.model as User | null;
-        if (model) {
-            setUser(model);
-            setRole(model.role || 'visitor'); // Assuming role is on the user record
-        }
-        setToken(pb.authStore.token);
-        setLoading(false);
-
-        // Listen for changes
-        const unsubscribe = pb.authStore.onChange((token, model) => {
-            setToken(token);
-            setUser(model as User | null);
-            setRole((model as User | null)?.role || null);
-        });
-
-        return () => {
-            unsubscribe();
-        };
+        refreshUser();
     }, []);
 
-    const signOut = () => {
-        pb.authStore.clear();
+    const signOut = async () => {
+        try {
+            await directus.logout();
+            setUser(null);
+            setRole(null);
+        } catch (error) {
+            logger.error('Logout failed', error);
+        }
     };
 
     return (
-        <AuthContext.Provider value={{ user, token, role, loading, signOut }}>
+        <AuthContext.Provider value={{ user, token: null, role, loading, signOut, refreshUser }}>
             {children}
         </AuthContext.Provider>
     );

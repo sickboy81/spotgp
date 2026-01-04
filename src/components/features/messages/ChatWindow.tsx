@@ -130,7 +130,7 @@ export function ChatWindow({ conversationId, onMessageSent }: ChatWindowProps) {
                                         "text-xs mt-1",
                                         isOwn ? "text-primary-foreground/70" : "text-muted-foreground"
                                     )}>
-                                        {formatTime(message.created)}
+                                        {formatTime(message.date_created)}
                                     </p>
                                 </div>
                             </div>
@@ -172,5 +172,9 @@ export function ChatWindow({ conversationId, onMessageSent }: ChatWindowProps) {
         </div>
     );
 }
+
+
+
+
 
 

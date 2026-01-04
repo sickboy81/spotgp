@@ -6,6 +6,7 @@ import { FilterSidebar, FilterState } from '@/components/features/filters/Filter
 import { cn, normalizeString } from '@/lib/utils';
 import { SEOHead } from '@/components/features/seo/SEOHead';
 import { LazyImage } from '@/components/features/media/LazyImage';
+import { sanitizeInput } from '@/lib/utils/validation';
 
 type SortOption = 'relevance' | 'price_asc' | 'price_desc' | 'newest' | 'popularity' | 'distance';
 
@@ -315,10 +316,10 @@ export default function Search() {
                                                 {/* Info */}
                                                 <div className="absolute bottom-0 left-0 right-0 p-2.5 z-20 translate-y-1 group-hover:translate-y-0 transition-transform duration-500">
                                                     <h3 className="text-sm font-bold text-white mb-0.5 font-display drop-shadow-md truncate">
-                                                        {profile.display_name}
+                                                        {sanitizeInput(profile.display_name || '')}
                                                     </h3>
                                                     <div className="flex items-center justify-between text-white/90 text-[10px] font-medium">
-                                                        <span className="truncate mr-1">{profile.city}</span>
+                                                        <span className="truncate mr-1">{sanitizeInput(profile.city || '')}</span>
                                                         <span className="flex-shrink-0">R$ {profile.price}</span>
                                                     </div>
                                                 </div>

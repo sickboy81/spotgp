@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Shield, UserPlus, Edit, Save, X } from 'lucide-react';
-import { pb } from '@/lib/pocketbase';
+import { directus } from '@/lib/directus';
+import { readItems, createItem, updateItem } from '@directus/sdk';
 
 interface Role {
     id: string;
@@ -101,12 +102,13 @@ export default function PermissionsManagement() {
     const loadRoles = async () => {
         setLoading(true);
         try {
-            const result = await pb.collection('roles').getList<Role>(1, 50, {
-                sort: 'name',
-            });
-            setRoles(result.items);
+            const result = await directus.request(readItems('roles', {
+                sort: ['name'], // Directus sort array
+                limit: 50
+            }));
+            setRoles(result as unknown as Role[]);
         } catch (err) {
-            console.warn('Could not load roles from DB, using defaults:', err);
+            console.warn('Could not load roles from Directus, using defaults:', err);
             setRoles(DEFAULT_ROLES);
         } finally {
             setLoading(false);
@@ -132,9 +134,9 @@ export default function PermissionsManagement() {
                 return;
             }
 
-            await pb.collection('roles').update(roleId, {
+            await directus.request(updateItem('roles', roleId, {
                 permissions: selectedPermissions
-            });
+            }));
 
             setRoles(roles.map(r =>
                 r.id === roleId
@@ -159,7 +161,7 @@ export default function PermissionsManagement() {
                     user_count: 0,
                 };
 
-                const created = await pb.collection('roles').create(roleData);
+                const created = await directus.request(createItem('roles', roleData));
 
                 setRoles([...roles, created as unknown as Role]);
                 setNewRole({ name: '', description: '' });
@@ -395,3 +397,7 @@ export default function PermissionsManagement() {
         </div>
     );
 }
+
+
+
+

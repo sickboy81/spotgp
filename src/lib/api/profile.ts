@@ -1,52 +1,13 @@
 // API functions for profile management
-import { pb } from '@/lib/pocketbase';
+import { directus } from '@/lib/directus';
+import { readItems, createItem, updateItem } from '@directus/sdk';
 import { generateUniqueAdId } from '../utils';
+import { logger } from '../utils/logger';
 
 export interface ProfileData {
-    ad_id?: string;
-    category?: string;
-    display_name?: string;
-    title?: string;
-    bio?: string;
-    username?: string;
-    city?: string;
-    state?: string;
-    neighborhood?: string;
-    street_address?: string;
-    address_reference?: string;
-    latitude?: number;
-    longitude?: number;
-    phone?: string;
-    telegram?: string;
-    instagram?: string;
-    twitter?: string;
-    price?: number;
-    prices?: Array<{ description: string; price: number }>;
-    age?: number;
-    gender?: string;
-    height?: string;
-    weight?: string;
-    hairColor?: string[];
-    bodyType?: string[];
-    ethnicity?: string[];
-    services?: string[];
-    paymentMethods?: string[];
-    hasPlace?: boolean;
-    videoCall?: boolean;
-    chat_enabled?: boolean;
-    schedule_24h?: boolean;
-    schedule_from?: string;
-    schedule_to?: string;
-    schedule_same_everyday?: boolean;
-    audio_url?: string;
-    massageTypes?: string[];
-    otherServices?: string[];
-    happyEnding?: string[];
-    facilities?: string[];
-    serviceTo?: string[];
-    serviceLocations?: string[];
-    is_online?: boolean;
-    online_until?: string | null;
+    id?: string;
+    // ... (other fields remain the same, ensuring we support keys)
+    [key: string]: any;
 }
 
 /**
@@ -54,10 +15,16 @@ export interface ProfileData {
  */
 export async function loadProfile(userId: string): Promise<ProfileData | null> {
     try {
-        const profile = await pb.collection('profiles').getOne<ProfileData>(userId);
-        return profile;
+        // Try to find profile where user field matches userId
+        // This is safer than assuming profile.id === userId
+        const result = await directus.request(readItems('profiles', {
+            filter: { user: { _eq: userId } },
+            limit: 1
+        }));
+
+        return result[0] as ProfileData || null;
     } catch (err) {
-        console.warn('Profile not found in PocketBase:', err);
+        logger.warn('Profile not found in Directus:', err);
         return null;
     }
 }
@@ -71,14 +38,19 @@ export async function saveProfile(userId: string, data: ProfileData): Promise<{ 
             data.ad_id = generateUniqueAdId();
         }
 
-        try {
-            await pb.collection('profiles').update(userId, data);
-        } catch (e: any) {
-            if (e.status === 404) {
-                await pb.collection('profiles').create({ ...data, id: userId });
-            } else {
-                throw e;
-            }
+        // Check if profile exists
+        const existing = await loadProfile(userId);
+
+        if (existing && existing.id) {
+            await directus.request(updateItem('profiles', existing.id, data));
+        } else {
+            // Create new profile linked to user
+            // Try to set ID if allowed, else just set user relation
+            await directus.request(createItem('profiles', {
+                ...data,
+                user: userId,
+                // id: userId, // Optional: attempt to set same ID
+            }));
         }
 
         return { success: true };
@@ -100,10 +72,13 @@ export async function updateOnlineStatus(
             ? new Date(Date.now() + durationMinutes * 60 * 1000).toISOString()
             : null;
 
-        await pb.collection('profiles').update(userId, {
-            is_online: isOnline,
-            online_until: onlineUntil,
-        });
+        const existing = await loadProfile(userId);
+        if (existing && existing.id) {
+            await directus.request(updateItem('profiles', existing.id, {
+                is_online: isOnline,
+                online_until: onlineUntil,
+            }));
+        }
 
         return { success: true };
     } catch (error: any) {

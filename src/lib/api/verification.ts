@@ -1,8 +1,8 @@
 // API functions for verification system
 // Prepared for database integration - currently using localStorage simulation
 
-import { pb } from '../pocketbase';
-import { RecordModel } from 'pocketbase';
+import { directus } from '../directus';
+import { readItems, createItem, updateItem, uploadFiles } from '@directus/sdk';
 
 export interface VerificationDocument {
     id: string;
@@ -35,11 +35,16 @@ export async function uploadVerificationDocument(
     try {
         const formData = new FormData();
         formData.append('file', file);
+        // Optional: Organize in a specific folder if needed
 
-        const record = await pb.collection('media').create(formData);
-        const fileUrl = pb.files.getUrl(record, record.file);
+        const fileResult: any = await directus.request(uploadFiles(formData));
+        const uploadedFile = Array.isArray(fileResult) ? fileResult[0] : fileResult;
+        const fileId = uploadedFile.id;
 
+        // Construct file URL
+        const fileUrl = `${import.meta.env.VITE_DIRECTUS_URL}/assets/${fileId}`;
         return fileUrl;
+
     } catch (error) {
         throw new Error(`Erro ao fazer upload: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
@@ -64,13 +69,13 @@ export async function submitVerificationRequest(
         };
 
         // Create verification document record
-        await pb.collection('verification_documents').create(verificationData);
+        await directus.request(createItem('verification_documents', verificationData));
 
         // Update profile status
-        await pb.collection('profiles').update(userId, {
+        await directus.request(updateItem('profiles', userId, {
             verification_status: 'pending',
             verified: false
-        });
+        }));
 
         return { success: true };
     } catch (error) {
@@ -83,23 +88,23 @@ export async function submitVerificationRequest(
  */
 export async function getVerificationDocuments(profileId: string): Promise<VerificationDocument[]> {
     try {
-        const records = await pb.collection('verification_documents').getFullList({
-            filter: `profile_id="${profileId}"`,
-            sort: '-created',
-        });
+        const records = await directus.request(readItems('verification_documents', {
+            filter: { profile_id: { _eq: profileId } },
+            sort: ['-date_created'],
+        }));
 
-        return records.map((record: RecordModel) => ({
+        return records.map((record: any) => ({
             id: record.id,
             profile_id: record.profile_id,
             document_front_url: record.document_front_url,
             document_back_url: record.document_back_url,
             selfie_url: record.selfie_url,
-            status: record.status as any,
+            status: record.status,
             rejected_reason: record.rejected_reason,
             reviewed_by: record.reviewed_by,
             reviewed_at: record.reviewed_at,
-            created_at: record.created,
-            updated_at: record.updated
+            created_at: record.date_created,
+            updated_at: record.date_updated
         }));
     } catch (error) {
         console.error('Error fetching verification documents:', error);
@@ -112,10 +117,18 @@ export async function getVerificationDocuments(profileId: string): Promise<Verif
  */
 export async function getVerificationStatus(userId: string): Promise<VerificationStatus | null> {
     try {
-        const profile = await pb.collection('profiles').getOne(userId, {
-            fields: 'verified,verification_status,verification_rejected_reason'
-        });
+        // Profiles have numeric IDs, but we need to find by user field
+        const profiles: any[] = await directus.request(readItems('profiles', {
+            filter: { user: { _eq: userId } },
+            fields: ['verified', 'verification_status', 'verification_rejected_reason'],
+            limit: 1
+        }));
 
+        if (!profiles || profiles.length === 0) {
+            return null;
+        }
+
+        const profile = profiles[0];
         return {
             verified: profile.verified,
             verification_status: profile.verification_status || null,
@@ -136,24 +149,28 @@ export async function approveVerification(
 ): Promise<{ success: boolean; error?: string }> {
     try {
         // Update profile
-        await pb.collection('profiles').update(profileId, {
+        await directus.request(updateItem('profiles', profileId, {
             verified: true,
             verification_status: 'approved',
             verification_rejected_reason: null
-        });
+        }));
 
         // Find latest pending document
-        const pendingDocs = await pb.collection('verification_documents').getList(1, 1, {
-            filter: `profile_id="${profileId}" && status="pending"`,
-            sort: '-created'
-        });
+        const pendingDocs = await directus.request(readItems('verification_documents', {
+            filter: {
+                profile_id: { _eq: profileId },
+                status: { _eq: 'pending' }
+            },
+            sort: ['-date_created'],
+            limit: 1
+        }));
 
-        if (pendingDocs.items.length > 0) {
-            await pb.collection('verification_documents').update(pendingDocs.items[0].id, {
+        if (pendingDocs.length > 0) {
+            await directus.request(updateItem('verification_documents', pendingDocs[0].id, {
                 status: 'approved',
                 reviewed_by: adminId,
                 reviewed_at: new Date().toISOString()
-            });
+            }));
         }
 
         return { success: true };
@@ -172,25 +189,29 @@ export async function rejectVerification(
 ): Promise<{ success: boolean; error?: string }> {
     try {
         // Update profile
-        await pb.collection('profiles').update(profileId, {
+        await directus.request(updateItem('profiles', profileId, {
             verified: false,
             verification_status: 'rejected',
             verification_rejected_reason: reason
-        });
+        }));
 
         // Find latest pending document
-        const pendingDocs = await pb.collection('verification_documents').getList(1, 1, {
-            filter: `profile_id="${profileId}" && status="pending"`,
-            sort: '-created'
-        });
+        const pendingDocs = await directus.request(readItems('verification_documents', {
+            filter: {
+                profile_id: { _eq: profileId },
+                status: { _eq: 'pending' }
+            },
+            sort: ['-date_created'],
+            limit: 1
+        }));
 
-        if (pendingDocs.items.length > 0) {
-            await pb.collection('verification_documents').update(pendingDocs.items[0].id, {
+        if (pendingDocs.length > 0) {
+            await directus.request(updateItem('verification_documents', pendingDocs[0].id, {
                 status: 'rejected',
                 rejected_reason: reason,
                 reviewed_by: adminId,
                 reviewed_at: new Date().toISOString()
-            });
+            }));
         }
 
         return { success: true };
@@ -204,24 +225,29 @@ export async function rejectVerification(
  */
 export async function getPendingVerifications(): Promise<VerificationDocument[]> {
     try {
-        const records = await pb.collection('verification_documents').getFullList({
-            filter: 'status="pending" || status="under_review"',
-            sort: '-created',
-            expand: 'profile_id'
-        });
+        const records = await directus.request(readItems('verification_documents', {
+            filter: {
+                _or: [
+                    { status: { _eq: 'pending' } },
+                    { status: { _eq: 'under_review' } }
+                ]
+            },
+            sort: ['-date_created'],
+            fields: ['*', 'profile_id.display_name'] // directus uses . notation for related fields
+        }));
 
-        return records.map((record: RecordModel) => ({
+        return records.map((record: any) => ({
             id: record.id,
             profile_id: record.profile_id,
             document_front_url: record.document_front_url,
             document_back_url: record.document_back_url,
             selfie_url: record.selfie_url,
-            status: record.status as any,
+            status: record.status,
             rejected_reason: record.rejected_reason,
             reviewed_by: record.reviewed_by,
             reviewed_at: record.reviewed_at,
-            created_at: record.created,
-            updated_at: record.updated,
+            created_at: record.date_created,
+            updated_at: record.date_updated,
         }));
     } catch (error) {
         console.error('Error fetching pending verifications:', error);

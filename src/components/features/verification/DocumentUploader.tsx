@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
-import { X, Image as ImageIcon, Check } from 'lucide-react';
+import { X, Image as ImageIcon, Check, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { compressVerificationDocument, getCompressionSummary } from '@/lib/imageCompression';
 
 interface DocumentUploaderProps {
     label: string;
@@ -22,11 +23,12 @@ export function DocumentUploader({
     maxSizeMB = 5
 }: DocumentUploaderProps) {
     const [preview, setPreview] = useState<string | null>(value || null);
-    // const [uploading, setUploading] = useState(false);
+    const [compressing, setCompressing] = useState(false);
+    const [compressionMessage, setCompressionMessage] = useState('');
     const [error, setError] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
         setError(null);
         const file = e.target.files?.[0];
         if (!file) return;
@@ -37,26 +39,65 @@ export function DocumentUploader({
             return;
         }
 
-        // Validate file size
+        // Validate file size (before compression)
         const maxSize = maxSizeMB * 1024 * 1024;
         if (file.size > maxSize) {
             setError(`O arquivo deve ter no máximo ${maxSizeMB}MB.`);
             return;
         }
 
-        // Create preview
-        const reader = new FileReader();
-        reader.onloadend = () => {
-            const result = reader.result as string;
-            setPreview(result);
+        // Compress image
+        setCompressing(true);
+        setCompressionMessage('Comprimindo documento...');
+
+        try {
+            const result = await compressVerificationDocument(file, (progress) => {
+                setCompressionMessage(`Comprimindo: ${Math.round(progress)}%`);
+            });
+
+            const summary = getCompressionSummary(result);
+            setCompressionMessage(summary);
+
+            // Create preview from compressed file
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                const dataUrl = reader.result as string;
+                setPreview(dataUrl);
+                onChange(dataUrl);
+
+                // Clear message after 3 seconds
+                setTimeout(() => {
+                    setCompressionMessage('');
+                    setCompressing(false);
+                }, 3000);
+            };
+            reader.readAsDataURL(result.file);
+
+            if (onFileSelect) {
+                onFileSelect(result.file);
+            }
+        } catch (error) {
+            console.error('Compression error:', error);
+            setCompressionMessage('Erro ao comprimir. Usando original.');
+
+            // Fallback to original file
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                const dataUrl = reader.result as string;
+                setPreview(dataUrl);
+                onChange(dataUrl);
+
+                setTimeout(() => {
+                    setCompressionMessage('');
+                    setCompressing(false);
+                }, 3000);
+            };
+            reader.readAsDataURL(file);
+
             if (onFileSelect) {
                 onFileSelect(file);
             }
-            // For now, we'll use the data URL directly
-            // In production, this would upload to Supabase Storage first
-            onChange(result);
-        };
-        reader.readAsDataURL(file);
+        }
     };
 
     const handleRemove = () => {
@@ -77,6 +118,16 @@ export function DocumentUploader({
             {error && (
                 <div className="text-sm text-destructive bg-destructive/10 p-2 rounded">
                     {error}
+                </div>
+            )}
+
+            {compressionMessage && (
+                <div className={cn(
+                    "flex items-center gap-2 p-2 rounded text-sm",
+                    compressing ? "bg-blue-50 text-blue-700" : "bg-green-50 text-green-700"
+                )}>
+                    {compressing && <Loader2 className="w-4 h-4 animate-spin" />}
+                    <span>{compressionMessage}</span>
                 </div>
             )}
 
@@ -129,5 +180,9 @@ export function DocumentUploader({
         </div>
     );
 }
+
+
+
+
 
 

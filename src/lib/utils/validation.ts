@@ -21,23 +21,23 @@ export function isValidEmail(email: string): boolean {
  */
 export function isStrongPassword(password: string): { valid: boolean; errors: string[] } {
     const errors: string[] = [];
-    
+
     if (!password || password.length < 8) {
         errors.push('Senha deve ter no mínimo 8 caracteres');
     }
-    
-    if (!/[A-Z]/.test(password)) {
+
+    if (password === password.toLowerCase()) {
         errors.push('Senha deve conter pelo menos 1 letra maiúscula');
     }
-    
-    if (!/[a-z]/.test(password)) {
+
+    if (password === password.toUpperCase()) {
         errors.push('Senha deve conter pelo menos 1 letra minúscula');
     }
-    
+
     if (!/[0-9]/.test(password)) {
         errors.push('Senha deve conter pelo menos 1 número');
     }
-    
+
     return {
         valid: errors.length === 0,
         errors
@@ -49,7 +49,7 @@ export function isStrongPassword(password: string): { valid: boolean; errors: st
  */
 export function sanitizeInput(input: string): string {
     if (!input || typeof input !== 'string') return '';
-    
+
     return input
         .trim()
         .replace(/[<>]/g, '') // Remove < and >
@@ -85,26 +85,26 @@ export function isValidUrl(url: string): boolean {
 export function checkRateLimit(key: string, maxAttempts: number = 5, windowMs: number = 15 * 60 * 1000): boolean {
     const storageKey = `rate_limit_${key}`;
     const now = Date.now();
-    
+
     try {
         const stored = localStorage.getItem(storageKey);
         if (!stored) {
             localStorage.setItem(storageKey, JSON.stringify({ attempts: 1, resetAt: now + windowMs }));
             return true;
         }
-        
+
         const data = JSON.parse(stored);
-        
+
         if (now > data.resetAt) {
             // Reset window
             localStorage.setItem(storageKey, JSON.stringify({ attempts: 1, resetAt: now + windowMs }));
             return true;
         }
-        
+
         if (data.attempts >= maxAttempts) {
             return false; // Rate limit exceeded
         }
-        
+
         data.attempts++;
         localStorage.setItem(storageKey, JSON.stringify(data));
         return true;
@@ -112,4 +112,8 @@ export function checkRateLimit(key: string, maxAttempts: number = 5, windowMs: n
         return true; // On error, allow (fail open)
     }
 }
+
+
+
+
 

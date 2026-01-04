@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { Star, TrendingUp, Eye, Search, Loader2, Sparkles } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { cn } from '@/lib/utils';
-import { pb } from '@/lib/pocketbase';
+import { directus } from '@/lib/directus';
+import { readItems, updateItem } from '@directus/sdk';
 
 interface Ad {
     id: string;
@@ -31,23 +32,24 @@ export default function AdsManagement() {
     const loadAds = async () => {
         setLoading(true);
         try {
-            const profiles = await pb.collection('profiles').getFullList({
-                filter: 'role = "advertiser"',
-                sort: '-created',
-                fields: 'id,display_name,ad_id,created' // views and clicks might need to be fetched separately if they aren't on profile
-            });
+            // Fetch profiles with role 'advertiser'
+            const profiles = await directus.request(readItems('profiles', {
+                filter: { role: { _eq: 'advertiser' } },
+                sort: ['-date_created'],
+                fields: ['id', 'display_name', 'ad_id', 'date_created', 'is_featured', 'is_sponsored', 'views', 'clicks']
+            }));
 
             // Map profiles to ads (in a real app, you'd have an ads table)
-            const adsData: Ad[] = profiles.map(profile => ({
+            const adsData: Ad[] = profiles.map((profile: any) => ({
                 id: profile.id,
                 profile_id: profile.id,
                 display_name: profile.display_name || 'Sem nome',
                 ad_id: profile.ad_id || '',
-                is_featured: false, // TODO: Get from ads table or profile field
-                is_sponsored: false, // TODO: Get from ads table or profile field
+                is_featured: profile.is_featured || false,
+                is_sponsored: profile.is_sponsored || false,
                 priority: 0,
-                views: 0, // TODO: Fetch from new analytics collection or relation
-                clicks: 0, // TODO: Fetch from new analytics collection or relation
+                views: profile.views || 0, // Using profile fields if they exist
+                clicks: profile.clicks || 0,
             }));
 
             setAds(adsData);
@@ -58,20 +60,28 @@ export default function AdsManagement() {
         }
     };
 
-    const handleToggleFeatured = async (_adId: string, currentFeatured: boolean) => {
+    const handleToggleFeatured = async (adId: string, currentFeatured: boolean) => {
         try {
-            // TODO: Update in ads table
+            // Update in profiles table (since adId is profile.id here)
+            await directus.request(updateItem('profiles', adId, {
+                is_featured: !currentFeatured
+            }));
+
             alert(`Anúncio ${currentFeatured ? 'removido dos' : 'adicionado aos'} destaques`);
-            loadAds();
+            loadAds(); // Reload locally or optimistically update
         } catch (err) {
             console.error('Error updating featured status:', err);
             alert('Erro ao atualizar status');
         }
     };
 
-    const handleToggleSponsored = async (_adId: string, currentSponsored: boolean) => {
+    const handleToggleSponsored = async (adId: string, currentSponsored: boolean) => {
         try {
-            // TODO: Update in ads table
+            // Update in profiles table
+            await directus.request(updateItem('profiles', adId, {
+                is_sponsored: !currentSponsored
+            }));
+
             alert(`Anúncio ${currentSponsored ? 'removido dos' : 'adicionado aos'} patrocinados`);
             loadAds();
         } catch (err) {
@@ -82,8 +92,8 @@ export default function AdsManagement() {
 
     const filteredAds = ads.filter(ad => {
         const matchesSearch =
-            ad.display_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            ad.ad_id?.toLowerCase().includes(searchTerm.toLowerCase());
+            (ad.display_name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+            (ad.ad_id?.toLowerCase() || '').includes(searchTerm.toLowerCase());
 
         const matchesFilter =
             filterType === 'all' ||
@@ -318,5 +328,7 @@ export default function AdsManagement() {
         </div>
     );
 }
+
+
 
 

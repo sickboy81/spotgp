@@ -12,6 +12,7 @@ import Register from './pages/auth/Register';
 
 import DashboardLayout from './components/layout/DashboardLayout';
 import Overview from './pages/dashboard/Overview';
+import MyAds from './pages/dashboard/MyAds';
 import Analytics from './pages/dashboard/Analytics';
 import Messages from './pages/dashboard/Messages';
 import Notifications from './pages/dashboard/Notifications';
@@ -66,47 +67,48 @@ function App() {
                 <Route path="/login" element={<Login />} />
                 <Route path="/register" element={<Register />} />
 
-              {/* Protected Advertiser Routes */}
-              <Route element={<ProtectedRoute allowedRoles={['advertiser', 'super_admin']} />}>
-                <Route path="/dashboard" element={<DashboardLayout />}>
-                  <Route index element={<Overview />} />
-                  <Route path="analytics" element={<Analytics />} />
-                  <Route path="messages" element={<Messages />} />
-                  <Route path="notifications" element={<Notifications />} />
-                  <Route path="profile" element={<EditProfile />} />
-                  <Route path="verification" element={<Verification />} />
-                  <Route path="settings" element={<Settings />} />
+                {/* Protected Advertiser Routes */}
+                <Route element={<ProtectedRoute allowedRoles={['advertiser', 'super_admin']} />}>
+                  <Route path="/dashboard" element={<DashboardLayout />}>
+                    <Route index element={<Overview />} />
+                    <Route path="ads" element={<MyAds />} />
+                    <Route path="analytics" element={<Analytics />} />
+                    <Route path="messages" element={<Messages />} />
+                    <Route path="notifications" element={<Notifications />} />
+                    <Route path="profile" element={<EditProfile />} />
+                    <Route path="verification" element={<Verification />} />
+                    <Route path="settings" element={<Settings />} />
+                  </Route>
                 </Route>
-              </Route>
 
-              <Route path="/messages/:profileId?" element={<MessagesPage />} />
+                <Route path="/messages/:profileId?" element={<MessagesPage />} />
 
-              {/* Protected Admin Routes */}
-              <Route element={<ProtectedRoute allowedRoles={['super_admin']} />}>
-                <Route path="/admin" element={<AdminLayout />}>
-                  <Route index element={<AdminStats />} />
-                  <Route path="users" element={<UserManagement />} />
-                  <Route path="verification" element={<VerificationReview />} />
-                  <Route path="moderation" element={<Moderation />} />
-                  <Route path="content" element={<ContentManagement />} />
-                  <Route path="ads" element={<AdsManagement />} />
-                  <Route path="financial" element={<FinancialManagement />} />
-                  <Route path="categories" element={<CategoriesManagement />} />
-                  <Route path="analytics" element={<AnalyticsAdvanced />} />
-                  <Route path="emails" element={<EmailManagement />} />
+                {/* Protected Admin Routes */}
+                <Route element={<ProtectedRoute allowedRoles={['super_admin']} />}>
+                  <Route path="/admin" element={<AdminLayout />}>
+                    <Route index element={<AdminStats />} />
+                    <Route path="users" element={<UserManagement />} />
+                    <Route path="verification" element={<VerificationReview />} />
+                    <Route path="moderation" element={<Moderation />} />
+                    <Route path="content" element={<ContentManagement />} />
+                    <Route path="ads" element={<AdsManagement />} />
+                    <Route path="financial" element={<FinancialManagement />} />
+                    <Route path="categories" element={<CategoriesManagement />} />
+                    <Route path="analytics" element={<AnalyticsAdvanced />} />
+                    <Route path="emails" element={<EmailManagement />} />
                     <Route path="chat" element={<ChatManagement />} />
                     <Route path="plans" element={<PlansManagement />} />
                     <Route path="coupons" element={<CouponsManagement />} />
-                  <Route path="backup" element={<BackupManagement />} />
-                  <Route path="locations" element={<LocationsManagement />} />
-                  <Route path="permissions" element={<PermissionsManagement />} />
-                  <Route path="media" element={<MediaManagement />} />
-                  <Route path="sessions" element={<ActiveSessions />} />
-                  <Route path="bans" element={<BanManagement />} />
-                  <Route path="logs" element={<ActivityLogs />} />
-                  <Route path="settings" element={<SystemSettings />} />
+                    <Route path="backup" element={<BackupManagement />} />
+                    <Route path="locations" element={<LocationsManagement />} />
+                    <Route path="permissions" element={<PermissionsManagement />} />
+                    <Route path="media" element={<MediaManagement />} />
+                    <Route path="sessions" element={<ActiveSessions />} />
+                    <Route path="bans" element={<BanManagement />} />
+                    <Route path="logs" element={<ActivityLogs />} />
+                    <Route path="settings" element={<SystemSettings />} />
+                  </Route>
                 </Route>
-              </Route>
 
                 <Route path="/favorites" element={<Favorites />} />
                 <Route path="/search" element={<Search />} />

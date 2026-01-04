@@ -49,3 +49,7 @@ convert logo.svg -resize 512x512 public/icons/icon-512x512.png
 Se você tiver a imagem do logo em anexo, use-a como base. Caso contrário, exporte o SVG do componente `src/components/ui/Logo.tsx` e use como base.
 
 
+
+
+
+

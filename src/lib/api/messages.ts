@@ -1,5 +1,6 @@
 // API functions for messaging system
-import { pb } from '@/lib/pocketbase';
+import { directus } from '@/lib/directus';
+import { readItems, createItem, updateItem, updateItems } from '@directus/sdk';
 // import { shouldUseMockAuth } from '../mock-auth';
 
 // Types
@@ -8,8 +9,8 @@ export interface Conversation {
     participant1_id: string;
     participant2_id: string;
     last_message_at: string | null;
-    created: string;
-    updated: string;
+    date_created: string;
+    date_updated: string;
 }
 
 export interface Message {
@@ -18,8 +19,8 @@ export interface Message {
     sender_id: string;
     content: string;
     is_read: boolean;
-    created: string;
-    updated: string;
+    date_created: string;
+    date_updated: string;
 }
 
 export interface ConversationWithParticipant extends Conversation {
@@ -49,35 +50,59 @@ export async function getOrCreateConversation(
     try {
         // Check if chat is enabled for the advertiser (userId2 is typically the advertiser)
         try {
-            const advertiserProfile = await pb.collection('profiles').getOne(userId2);
-            if (advertiserProfile.role === 'advertiser' && advertiserProfile.chat_enabled === false) {
+            // Assuming userId2 is the advertiser profile ID or related user ID
+            const profiles = await directus.request(readItems('profiles', {
+                filter: { id: { _eq: userId2 } }, // Assuming userId2 is profile ID for initial check? Or user ID?
+                // If userId2 is user_id, finding profile:
+                // filter: { user: { _eq: userId2 } }
+                limit: 1
+            }));
+            const advertiserProfile: any = profiles[0];
+
+            if (advertiserProfile?.role === 'advertiser' && advertiserProfile?.chat_enabled === false) {
                 throw new Error('Chat interno está desabilitado para este perfil');
             }
         } catch (e) { /* ignore if profile fetch fails */ }
 
         // Try to find existing conversation
         // Filter: (p1=u1 AND p2=u2) OR (p1=u2 AND p2=u1)
-        const filter = `(participant1_id = "${userId1}" && participant2_id = "${userId2}") || (participant1_id = "${userId2}" && participant2_id = "${userId1}")`;
+        const existingList = await directus.request(readItems('conversations', {
+            filter: {
+                _or: [
+                    {
+                        _and: [
+                            { participant1_id: { _eq: userId1 } },
+                            { participant2_id: { _eq: userId2 } }
+                        ]
+                    },
+                    {
+                        _and: [
+                            { participant1_id: { _eq: userId2 } },
+                            { participant2_id: { _eq: userId1 } }
+                        ]
+                    }
+                ]
+            },
+            limit: 1
+        }));
 
-        const existingList = await pb.collection('conversations').getList<Conversation>(1, 1, { filter });
-
-        if (existingList.items.length > 0) {
-            return existingList.items[0];
+        if (existingList.length > 0) {
+            return existingList[0] as Conversation;
         }
 
         // Create new conversation
-        const newConversation = await pb.collection('conversations').create<Conversation>({
+        const newConversation = await directus.request(createItem('conversations', {
             participant1_id: userId1,
             participant2_id: userId2,
             last_message_at: null,
-        });
+        }));
 
-        return newConversation;
+        return newConversation as Conversation;
     } catch (err: any) {
         if (err.message?.includes('desabilitado')) {
             throw err;
         }
-        console.warn('Error getting/creating conversation in PocketBase, using localStorage:', err);
+        console.warn('Error getting/creating conversation in Directus, using localStorage:', err);
         return getOrCreateConversationFromLocalStorage(userId1, userId2);
     }
 }
@@ -87,12 +112,12 @@ export async function getOrCreateConversation(
  */
 export async function getAllConversations(): Promise<Conversation[]> {
     try {
-        const list = await pb.collection('conversations').getFullList<Conversation>({
-            sort: '-last_message_at',
-        });
-        return list;
+        const list = await directus.request(readItems('conversations', {
+            sort: ['-last_message_at']
+        }));
+        return list as Conversation[];
     } catch (err: any) {
-        console.warn('Error fetching all conversations from PocketBase, using localStorage:', err);
+        console.warn('Error fetching all conversations from Directus, using localStorage:', err);
         return getConversationsFromLocalStorageArray();
     }
 }
@@ -102,23 +127,34 @@ export async function getAllConversations(): Promise<Conversation[]> {
  */
 export async function getUserConversations(userId: string): Promise<ConversationWithParticipant[]> {
     try {
-        const filter = `participant1_id = "${userId}" || participant2_id = "${userId}"`;
-        const list = await pb.collection('conversations').getFullList<Conversation>({
-            filter,
-            sort: '-last_message_at',
-        });
+        const list = await directus.request(readItems('conversations', {
+            filter: {
+                _or: [
+                    { participant1_id: { _eq: userId } },
+                    { participant2_id: { _eq: userId } }
+                ]
+            },
+            sort: ['-last_message_at']
+        }));
 
         // Fetch details
         const conversationsWithDetails = await Promise.all(
-            list.map(async (conv) => {
+            list.map(async (conv: any) => {
                 const otherUserId = conv.participant1_id === userId
                     ? conv.participant2_id
                     : conv.participant1_id;
 
                 let otherParticipant = null;
                 try {
-                    const p = await pb.collection('profiles').getOne(otherUserId);
-                    otherParticipant = { id: p.id, display_name: p.display_name, ad_id: p.ad_id };
+                    // Get profile of other user
+                    // Assuming otherUserId is user ID, fetch profile linked to it
+                    const profiles = await directus.request(readItems('profiles', {
+                        filter: { user: { _eq: otherUserId } }, // Safer lookup
+                        limit: 1,
+                        fields: ['id', 'display_name', 'ad_id']
+                    }));
+                    const p: any = profiles[0];
+                    if (p) otherParticipant = { id: p.id, display_name: p.display_name, ad_id: p.ad_id };
                 } catch (e) { /* ignore */ }
 
                 const lastMessage = await getLastMessage(conv.id);
@@ -135,7 +171,7 @@ export async function getUserConversations(userId: string): Promise<Conversation
 
         return conversationsWithDetails;
     } catch (err: any) {
-        console.warn('Error fetching conversations from PocketBase, using localStorage:', err);
+        console.warn('Error fetching conversations from Directus, using localStorage:', err);
         return getConversationsFromLocalStorage(userId);
     }
 }
@@ -148,23 +184,28 @@ export async function getConversationMessages(
     limit = 50
 ): Promise<MessageWithSender[]> {
     try {
-        const list = await pb.collection('messages').getList<Message>(1, limit, {
-            filter: `conversation_id = "${conversationId}"`,
-            sort: '-created',
-            expand: 'sender_id', // Expand sender info if relation exists
-        });
+        // Directus: fetch messages and sender details in one go
+        // Assuming sender_id is a relation to profiles or users
+        const list = await directus.request(readItems('messages', {
+            filter: { conversation_id: { _eq: conversationId } },
+            sort: ['-date_created'],
+            limit: limit,
+            // Fetch sender info nested
+            fields: ['*', 'sender_id.id', 'sender_id.display_name']
+        }));
 
-        const messagesWithSenders = list.items.map((msg: any) => ({
+        // Map Directus nested data to structure expected by UI
+        const messagesWithSenders = list.map((msg: any) => ({
             ...msg,
-            sender: msg.expand?.sender_id ? {
-                id: msg.expand.sender_id.id,
-                display_name: msg.expand.sender_id.display_name
+            sender: msg.sender_id ? {
+                id: msg.sender_id.id,
+                display_name: msg.sender_id.display_name
             } : undefined
         }));
 
         return messagesWithSenders.reverse() as MessageWithSender[];
     } catch (err: any) {
-        console.warn('Error fetching messages from PocketBase, using localStorage:', err);
+        console.warn('Error fetching messages from Directus, using localStorage:', err);
         return getMessagesFromLocalStorage(conversationId, limit);
     }
 }
@@ -185,17 +226,17 @@ export async function sendMessage(
             is_read: false,
         };
 
-        const message = await pb.collection('messages').create<Message>(messageData);
+        const message = await directus.request(createItem('messages', messageData));
 
-        // Update conversation
-        await pb.collection('conversations').update(conversationId, {
+        // Update conversation timestamp
+        await directus.request(updateItem('conversations', conversationId, {
             last_message_at: new Date().toISOString(),
-        });
+        }));
 
-        saveMessageToLocalStorage(message);
-        return { success: true, message };
+        saveMessageToLocalStorage(message as Message);
+        return { success: true, message: message as Message };
     } catch (err: any) {
-        console.warn('Error sending message in PocketBase, using localStorage:', err);
+        console.warn('Error sending message in Directus, using localStorage:', err);
 
         const newMessage: Message = {
             conversation_id: conversationId,
@@ -203,8 +244,8 @@ export async function sendMessage(
             content: content.trim(),
             is_read: false,
             id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-            created: new Date().toISOString(),
-            updated: new Date().toISOString(),
+            date_created: new Date().toISOString(),
+            date_updated: new Date().toISOString(),
         };
 
         saveMessageToLocalStorage(newMessage);
@@ -220,19 +261,24 @@ export async function markMessagesAsRead(
     userId: string
 ): Promise<{ success: boolean; error?: string }> {
     try {
-        // Fetch unread messages sent by others
-        const unread = await pb.collection('messages').getFullList({
-            filter: `conversation_id = "${conversationId}" && sender_id != "${userId}" && is_read = false`,
-        });
+        // Find unread messages not sent by me
+        const unread = await directus.request(readItems('messages', {
+            filter: {
+                conversation_id: { _eq: conversationId },
+                sender_id: { _neq: userId },
+                is_read: { _eq: false }
+            },
+            fields: ['id']
+        }));
 
-        await Promise.all(unread.map(m =>
-            pb.collection('messages').update(m.id, { is_read: true })
-        ));
+        if (unread.length > 0) {
+            await directus.request(updateItems('messages', unread.map((m: any) => m.id), { is_read: true }));
+        }
 
         updateMessagesReadStatus(conversationId, userId);
         return { success: true };
     } catch (err: any) {
-        console.warn('Error marking messages as read in PocketBase, using localStorage:', err);
+        console.warn('Error marking messages as read in Directus, using localStorage:', err);
         updateMessagesReadStatus(conversationId, userId);
         return { success: true };
     }
@@ -243,10 +289,17 @@ export async function markMessagesAsRead(
  */
 async function getUnreadCount(conversationId: string, userId: string): Promise<number> {
     try {
-        const result = await pb.collection('messages').getList(1, 1, {
-            filter: `conversation_id = "${conversationId}" && sender_id != "${userId}" && is_read = false`,
-        });
-        return result.totalItems;
+        // Count unread that are NOT from me
+        const result = await directus.request(readItems('messages', {
+            filter: {
+                conversation_id: { _eq: conversationId },
+                sender_id: { _neq: userId },
+                is_read: { _eq: false }
+            },
+            aggregate: { count: '*' }
+        }));
+        // Directus aggregate likely returns array
+        return Number((result as any)[0]?.count || 0);
     } catch {
         return getUnreadCountFromLocalStorage(conversationId, userId);
     }
@@ -257,17 +310,18 @@ async function getUnreadCount(conversationId: string, userId: string): Promise<n
  */
 async function getLastMessage(conversationId: string): Promise<Message | null> {
     try {
-        const list = await pb.collection('messages').getList<Message>(1, 1, {
-            filter: `conversation_id = "${conversationId}"`,
-            sort: '-created',
-        });
-        return list.items.length > 0 ? list.items[0] : null;
+        const list = await directus.request(readItems('messages', {
+            filter: { conversation_id: { _eq: conversationId } },
+            sort: ['-date_created'], // Directus date_created
+            limit: 1
+        }));
+        return list.length > 0 ? list[0] as Message : null;
     } catch {
         return getLastMessageFromLocalStorage(conversationId);
     }
 }
 
-// LocalStorage fallback functions (types adjusted)
+// LocalStorage fallback functions (types adjusted to match Directus fields date_created etc)
 function saveConversationToLocalStorage(conversation: Conversation): void {
     const conversations = getConversationsFromLocalStorageArray();
     const existingIndex = conversations.findIndex(c => c.id === conversation.id);
@@ -294,8 +348,8 @@ function getOrCreateConversationFromLocalStorage(userId1: string, userId2: strin
         participant1_id: userId1,
         participant2_id: userId2,
         last_message_at: null,
-        created: new Date().toISOString(),
-        updated: new Date().toISOString(),
+        date_created: new Date().toISOString(),
+        date_updated: new Date().toISOString(),
     };
 
     saveConversationToLocalStorage(newConversation);
@@ -327,8 +381,8 @@ function saveMessageToLocalStorage(message: Message): void {
     const conversations = getConversationsFromLocalStorageArray();
     const convIndex = conversations.findIndex(c => c.id === message.conversation_id);
     if (convIndex >= 0) {
-        conversations[convIndex].last_message_at = message.created;
-        conversations[convIndex].updated = new Date().toISOString();
+        conversations[convIndex].last_message_at = message.date_created;
+        conversations[convIndex].date_updated = new Date().toISOString();
         localStorage.setItem('spotgp_conversations', JSON.stringify(conversations));
     }
 }
@@ -342,7 +396,7 @@ function getMessagesFromLocalStorage(conversationId: string, limit: number): Mes
     const messages = getMessagesFromLocalStorageArray();
     return messages
         .filter(m => m.conversation_id === conversationId)
-        .sort((a, b) => new Date(a.created).getTime() - new Date(b.created).getTime())
+        .sort((a, b) => new Date(a.date_created).getTime() - new Date(b.date_created).getTime())
         .slice(-limit)
         .map(msg => ({ ...msg, sender: undefined })) as MessageWithSender[];
 }
@@ -351,7 +405,7 @@ function getLastMessageFromLocalStorage(conversationId: string): Message | null 
     const messages = getMessagesFromLocalStorageArray();
     const convMessages = messages
         .filter(m => m.conversation_id === conversationId)
-        .sort((a, b) => new Date(b.created).getTime() - new Date(a.created).getTime());
+        .sort((a, b) => new Date(b.date_created).getTime() - new Date(a.date_created).getTime());
 
     return convMessages.length > 0 ? convMessages[0] : null;
 }

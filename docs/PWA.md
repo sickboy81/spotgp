@@ -143,3 +143,7 @@ src/
 4. **Cache**: O service worker cacheia recursos estáticos, mas APIs externas (Supabase) não são cacheadas
 
 
+
+
+
+

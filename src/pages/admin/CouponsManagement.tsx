@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Ticket, Plus, Edit, Trash2, Copy, CheckCircle, XCircle, Percent, DollarSign, Gift, Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { pb } from '@/lib/pocketbase';
+import { directus } from '@/lib/directus';
+import { readItems, createItem, updateItem, deleteItem } from '@directus/sdk';
 
 interface Coupon {
     id: string;
@@ -45,12 +46,17 @@ export default function CouponsManagement() {
     const loadCoupons = async () => {
         setLoading(true);
         try {
-            const result = await pb.collection('coupons').getList<Coupon>(1, 50, {
-                sort: '-created',
-            });
-            setCoupons(result.items);
+            const result = await directus.request(readItems('coupons', {
+                sort: ['-date_created'],
+                limit: 50
+            }));
+            const mappedCoupons = result.map((c: any) => ({
+                ...c,
+                created_at: c.date_created // Map Directus date_created to created_at
+            }));
+            setCoupons(mappedCoupons as Coupon[]);
         } catch (err) {
-            console.warn('Error loading coupons (users might not see this if collection missing):', err);
+            console.warn('Error loading coupons:', err);
             setCoupons([]);
         } finally {
             setLoading(false);
@@ -82,7 +88,7 @@ export default function CouponsManagement() {
 
             if (editingCoupon) {
                 // Update existing coupon
-                await pb.collection('coupons').update(editingCoupon.id, data);
+                await directus.request(updateItem('coupons', editingCoupon.id, data));
                 setCoupons(coupons.map(c => c.id === editingCoupon.id ? { ...editingCoupon, ...data } as Coupon : c));
                 alert('Cupom atualizado com sucesso!');
             } else {
@@ -93,11 +99,16 @@ export default function CouponsManagement() {
                     return;
                 }
 
-                const newCoupon = await pb.collection('coupons').create({
+                const newCoupon = await directus.request(createItem('coupons', {
                     ...data,
                     used_count: 0,
-                });
-                setCoupons([newCoupon as unknown as Coupon, ...coupons]);
+                }));
+                // Try to map back, but usually we just reload or optimistically add
+                const mappedNewCoupon = {
+                    ...newCoupon,
+                    created_at: newCoupon.date_created
+                };
+                setCoupons([mappedNewCoupon as unknown as Coupon, ...coupons]);
                 alert('Cupom criado com sucesso!');
             }
 
@@ -146,7 +157,7 @@ export default function CouponsManagement() {
         // eslint-disable-next-line no-restricted-globals
         if (confirm('Tem certeza que deseja deletar este cupom?')) {
             try {
-                await pb.collection('coupons').delete(couponId);
+                await directus.request(deleteItem('coupons', couponId));
                 setCoupons(coupons.filter(c => c.id !== couponId));
             } catch (err: any) {
                 console.error('Error deleting coupon:', err);
@@ -163,7 +174,7 @@ export default function CouponsManagement() {
     const handleToggleActive = async (coupon: Coupon) => {
         try {
             const newState = !coupon.is_active;
-            await pb.collection('coupons').update(coupon.id, { is_active: newState });
+            await directus.request(updateItem('coupons', coupon.id, { is_active: newState }));
             setCoupons(coupons.map(c => c.id === coupon.id ? { ...c, is_active: newState } : c));
         } catch (err: any) {
             console.error('Error updating coupon:', err);
@@ -486,3 +497,7 @@ export default function CouponsManagement() {
         </div>
     );
 }
+
+
+
+

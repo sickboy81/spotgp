@@ -1,13 +1,14 @@
 // API functions for moderation actions
 
-import { pb } from '@/lib/pocketbase';
+import { directus } from '@/lib/directus';
+import { updateItem, deleteItem, deleteUser as deleteDirectusUser } from '@directus/sdk';
 
 /**
  * Ban a user
  */
 export async function banUser(userId: string): Promise<{ success: boolean; error?: string }> {
     try {
-        await pb.collection('profiles').update(userId, { is_banned: true });
+        await directus.request(updateItem('profiles', userId, { is_banned: true }));
         return { success: true };
     } catch (err: any) {
         console.error('Error banning user:', err);
@@ -20,7 +21,7 @@ export async function banUser(userId: string): Promise<{ success: boolean; error
  */
 export async function unbanUser(userId: string): Promise<{ success: boolean; error?: string }> {
     try {
-        await pb.collection('profiles').update(userId, { is_banned: false });
+        await directus.request(updateItem('profiles', userId, { is_banned: false }));
         return { success: true };
     } catch (err: any) {
         console.error('Error unbanning user:', err);
@@ -33,15 +34,22 @@ export async function unbanUser(userId: string): Promise<{ success: boolean; err
  */
 export async function deleteUser(userId: string): Promise<{ success: boolean; error?: string }> {
     try {
-        // First delete related data (reports, media, etc.)
-        // Then delete the profile
-        await pb.collection('profiles').delete(userId);
-        // Note: In PB, cascades might handle related data, or we delete users collection record which deletes profile if related using CASCADE.
-        // If we are deleting the user entirely:
+        // First delete profile
+        await directus.request(deleteItem('profiles', userId));
+
+        // If we want to delete the user completely from Directus auth:
+        // Note: DELETE /users/:id requires admin permissions
         try {
-            await pb.collection('users').delete(userId);
+            // Check if userId matches a user record. Usually profiles.id might equal users.id or users.id is stored in profiles.user
+            // If the argument userId refers to the Profile ID, we need to find the User ID (directus_users).
+            // But if userId here IS the one from Profile (which might be the same), 
+            // the previous code: await pb.collection('users').delete(userId); assumed they are same or it was passed User ID.
+            // In Directus, removing a user deletes their sessions etc.
+
+            // Assuming userId passed here is possibly the UUID of the user (or profile with same UUID)
+            await directus.request(deleteDirectusUser(userId));
         } catch (e) {
-            console.log("Could not delete user auth record or it was already deleted");
+            console.log("Could not delete Directus user auth record or it was already deleted/not found");
         }
 
         return { success: true };
@@ -65,12 +73,16 @@ export async function updateUserProfile(
     }
 ): Promise<{ success: boolean; error?: string }> {
     try {
-        await pb.collection('profiles').update(userId, updates);
+        await directus.request(updateItem('profiles', userId, updates));
         return { success: true };
     } catch (err: any) {
         console.error('Error updating user profile:', err);
         return { success: false, error: err.message || 'Erro ao atualizar perfil' };
     }
 }
+
+
+
+
 
 

@@ -48,3 +48,7 @@ if ('serviceWorker' in navigator) {
   console.log('%c⚠️ Service Workers não são suportados neste navegador', 'color: orange; font-size: 14px;');
 }
 
+
+
+
+

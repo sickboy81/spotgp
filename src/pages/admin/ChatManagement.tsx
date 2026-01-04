@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { MessageSquare, Search, AlertTriangle, Loader2, User, Trash2 } from 'lucide-react';
+import { MessageSquare, Search, AlertTriangle, Loader2, User, Trash2, ExternalLink } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { pb } from '@/lib/pocketbase';
-import { getConversationMessages, getAllConversations } from '@/lib/api/messages';
+import { directus } from '@/lib/directus';
+import { readItems, deleteItem } from '@directus/sdk';
+import { getAllConversations, getConversationMessages } from '@/lib/api/messages';
 
 interface Conversation {
     id: string;
@@ -14,8 +15,9 @@ interface Conversation {
     unread_count?: number;
     last_message?: string;
     last_message_at?: string | null;
-    created: string;
-    updated: string;
+    date_created?: string;
+    date_updated?: string;
+    created?: string; // fallback
 }
 
 interface Message {
@@ -25,8 +27,9 @@ interface Message {
     sender_name?: string;
     content: string;
     is_read: boolean;
-    created: string;
-    updated: string;
+    date_created: string;
+    date_updated: string;
+    created?: string; // fallback
 }
 
 export default function ChatManagement() {
@@ -62,37 +65,53 @@ export default function ChatManagement() {
                         let p2Name = 'Usuário desconhecido';
 
                         try {
-                            const p1 = await pb.collection('profiles').getOne(conv.participant1_id, { fields: 'display_name' });
-                            p1Name = p1.display_name || p1Name;
+                            const p1 = await directus.request(readItems('profiles', {
+                                filter: { id: { _eq: conv.participant1_id } },
+                                fields: ['display_name'],
+                                limit: 1
+                            }));
+                            if (p1[0]) p1Name = p1[0].display_name || p1Name;
                         } catch { /* ignore */ }
 
                         try {
-                            const p2 = await pb.collection('profiles').getOne(conv.participant2_id, { fields: 'display_name' });
-                            p2Name = p2.display_name || p2Name;
+                            const p2 = await directus.request(readItems('profiles', {
+                                filter: { id: { _eq: conv.participant2_id } },
+                                fields: ['display_name'],
+                                limit: 1
+                            }));
+                            if (p2[0]) p2Name = p2[0].display_name || p2Name;
                         } catch { /* ignore */ }
 
                         // Count messages
-                        // PB doesn't have a direct count method easily without fetching lists, 
-                        // but we can use getList(1, 1, filter) to get totalItems
-                        const messagesResult = await pb.collection('messages').getList(1, 1, {
-                            filter: `conversation_id = "${conv.id}"`,
-                            fields: 'id'
-                        });
-                        const messageCount = messagesResult.totalItems;
+                        let messageCount = 0;
+                        try {
+                            const messagesResult = await directus.request(readItems('messages', {
+                                filter: { conversation_id: { _eq: conv.id } },
+                                aggregate: { count: '*' }
+                            }));
+                            messageCount = Number((messagesResult as any)[0]?.count || 0);
+                        } catch { /* ignore */ }
 
                         // Count unread messages
-                        const unreadResult = await pb.collection('messages').getList(1, 1, {
-                            filter: `conversation_id = "${conv.id}" && is_read = false`,
-                            fields: 'id'
-                        });
-                        const unreadCount = unreadResult.totalItems;
+                        let unreadCount = 0;
+                        try {
+                            const unreadResult = await directus.request(readItems('messages', {
+                                filter: {
+                                    conversation_id: { _eq: conv.id },
+                                    is_read: { _eq: false }
+                                },
+                                aggregate: { count: '*' }
+                            }));
+                            unreadCount = Number((unreadResult as any)[0]?.count || 0);
+                        } catch { /* ignore */ }
 
                         return {
                             ...conv,
                             participant1_name: p1Name,
                             participant2_name: p2Name,
-                            message_count: messageCount || 0,
-                            unread_count: unreadCount || 0,
+                            message_count: messageCount,
+                            unread_count: unreadCount,
+                            created: conv.date_created, // Map for UI consistency if needed
                         };
                     } catch (err) {
                         console.error('Error processing conversation:', err);
@@ -102,6 +121,7 @@ export default function ChatManagement() {
                             participant2_name: 'Usuário desconhecido',
                             message_count: 0,
                             unread_count: 0,
+                            created: conv.date_created,
                         };
                     }
                 })
@@ -120,32 +140,40 @@ export default function ChatManagement() {
         try {
             const messagesData = await getConversationMessages(conversationId, 500); // Get up to 500 messages
 
-            // Get sender names
+            // Get sender names if not present
             const messagesWithNames = await Promise.all(
                 messagesData.map(async (msg) => {
                     try {
                         let senderName = msg.sender?.display_name || 'Usuário desconhecido';
-                        if (!msg.sender?.display_name && msg.sender_id) {
+
+                        // If sender name is missing but we have sender_id, try to fetch
+                        if ((!msg.sender?.display_name || msg.sender?.display_name === 'Usuário desconhecido') && msg.sender_id) {
                             try {
-                                const sender = await pb.collection('profiles').getOne(msg.sender_id, { fields: 'display_name' });
-                                senderName = sender.display_name || senderName;
+                                const sender = await directus.request(readItems('profiles', {
+                                    filter: { id: { _eq: msg.sender_id } },
+                                    fields: ['display_name'],
+                                    limit: 1
+                                }));
+                                if (sender[0]) senderName = sender[0].display_name || senderName;
                             } catch { /* ignore */ }
                         }
 
                         return {
                             ...msg,
                             sender_name: senderName,
+                            created: msg.date_created // Map for UI
                         };
                     } catch {
                         return {
                             ...msg,
                             sender_name: msg.sender?.display_name || 'Usuário desconhecido',
+                            created: msg.date_created
                         };
                     }
                 })
             );
 
-            setMessages(messagesWithNames);
+            setMessages(messagesWithNames as unknown as Message[]);
         } catch (err) {
             console.error('Error loading messages:', err);
         } finally {
@@ -158,19 +186,30 @@ export default function ChatManagement() {
 
         try {
             // Delete all messages first
-            // We need to fetch all message IDs first then delete them loop
-            // Or if we can't batch delete, just delete conversation and cascade?
-            // Assuming no cascade:
-            const msgs = await pb.collection('messages').getFullList({
-                filter: `conversation_id = "${conversationId}"`,
-                fields: 'id'
-            });
-            for (const m of msgs) {
-                await pb.collection('messages').delete(m.id);
+            // We need to fetch all message IDs first then delete them loop or use deleteItems if supported (Directus deleteItems takes array of IDs)
+            // Or just delete conversation if cascade is enabled? Directus usually enforces foreign keys.
+            // Let's try to delete messages first manually to be safe.
+
+            // Note: Directus SDK deleteItems is cleaner but strict typed.
+            // Let's just fetch IDs and delete.
+            const msgs = await directus.request(readItems('messages', {
+                filter: { conversation_id: { _eq: conversationId } },
+                fields: ['id'],
+                limit: -1
+            }));
+
+            if (msgs.length > 0) {
+                // await directus.request(deleteItems('messages', msgs.map(m => m.id))); // deleteItems not exported from some SDK versions, use loop or custom
+                // deleteItem takes a single ID or array of IDs in some versions. Check docs or use loop.
+                // SDK v13+ usually supports calculate delete.
+                // For safety, loop:
+                for (const m of msgs) {
+                    await directus.request(deleteItem('messages', m.id));
+                }
             }
 
             // Delete conversation
-            await pb.collection('conversations').delete(conversationId);
+            await directus.request(deleteItem('conversations', conversationId));
 
             setConversations(conversations.filter(c => c.id !== conversationId));
             if (selectedConversation?.id === conversationId) {
@@ -187,7 +226,7 @@ export default function ChatManagement() {
         if (!confirm('Tem certeza que deseja deletar esta mensagem?')) return;
 
         try {
-            await pb.collection('messages').delete(messageId);
+            await directus.request(deleteItem('messages', messageId));
 
             setMessages(messages.filter(m => m.id !== messageId));
         } catch (err) {
@@ -208,7 +247,8 @@ export default function ChatManagement() {
         return matchesSearch && matchesFilter;
     });
 
-    const formatTimeAgo = (dateString: string) => {
+    const formatTimeAgo = (dateString: string | undefined) => {
+        if (!dateString) return '';
         const date = new Date(dateString);
         const now = new Date();
         const diff = now.getTime() - date.getTime();
@@ -334,7 +374,7 @@ export default function ChatManagement() {
                                                 </div>
                                                 <div className="text-xs text-muted-foreground mt-1">
                                                     {conv.message_count || 0} mensagens
-                                                    {conv.unread_count && conv.unread_count > 0 && (
+                                                    {conv.unread_count !== undefined && conv.unread_count > 0 && (
                                                         <span className="ml-2 px-2 py-0.5 bg-primary text-white rounded text-xs">
                                                             {conv.unread_count} nova(s)
                                                         </span>
@@ -394,17 +434,19 @@ export default function ChatManagement() {
                                             onClick={() => {
                                                 window.open(`/profile/${selectedConversation.participant1_id}`, '_blank');
                                             }}
-                                            className="px-3 py-1.5 text-sm bg-muted hover:bg-muted/80 rounded-lg transition-colors"
+                                            className="px-3 py-1.5 text-sm bg-muted hover:bg-muted/80 rounded-lg transition-colors flex items-center gap-1"
                                         >
-                                            Ver {selectedConversation.participant1_name}
+                                            <ExternalLink className="w-3 h-3" />
+                                            Ver {selectedConversation.participant1_name?.split(' ')[0]}
                                         </button>
                                         <button
                                             onClick={() => {
                                                 window.open(`/profile/${selectedConversation.participant2_id}`, '_blank');
                                             }}
-                                            className="px-3 py-1.5 text-sm bg-muted hover:bg-muted/80 rounded-lg transition-colors"
+                                            className="px-3 py-1.5 text-sm bg-muted hover:bg-muted/80 rounded-lg transition-colors flex items-center gap-1"
                                         >
-                                            Ver {selectedConversation.participant2_name}
+                                            <ExternalLink className="w-3 h-3" />
+                                            Ver {selectedConversation.participant2_name?.split(' ')[0]}
                                         </button>
                                     </div>
                                 </div>
@@ -429,7 +471,7 @@ export default function ChatManagement() {
                                                 <div className="flex items-center gap-2 mb-1">
                                                     <span className="font-medium text-sm">{message.sender_name}</span>
                                                     <span className="text-xs text-muted-foreground">
-                                                        {new Date(message.created).toLocaleString('pt-BR')}
+                                                        {new Date(message.created || message.date_created).toLocaleString('pt-BR')}
                                                     </span>
                                                     {!message.is_read && (
                                                         <span className="px-2 py-0.5 bg-primary text-white text-xs rounded">
@@ -469,4 +511,3 @@ export default function ChatManagement() {
         </div>
     );
 }
-

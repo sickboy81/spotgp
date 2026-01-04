@@ -3,7 +3,8 @@ import { Save, Settings, AlertTriangle, Users, Shield, FileText, Loader2, Wrench
 import { cn } from '@/lib/utils';
 import { getMaintenanceMode, setMaintenanceMode } from '@/lib/utils/maintenance';
 import { isFreeModeEnabled, setFreeMode } from '@/lib/utils/free-mode';
-import { pb } from '@/lib/pocketbase';
+import { directus } from '@/lib/directus';
+import { readItems, updateItem, createItem } from '@directus/sdk';
 
 interface SystemSettingsData {
     id?: string;
@@ -20,8 +21,7 @@ interface SystemSettingsData {
     require_verification: boolean;
     max_video_size_mb: number;
     max_image_size_mb: number;
-    allowed_image_types?: string[];
-    allowed_video_types?: string[];
+    [key: string]: any;
 }
 
 export default function SystemSettings() {
@@ -56,17 +56,19 @@ export default function SystemSettings() {
         maxImageSizeMB: 5,
     });
 
-    // Load settings from PocketBase
+    // Load settings from Directus
     useEffect(() => {
         const loadSettings = async () => {
             setLoading(true);
             try {
                 // Try to get the first record from system_settings
-                const records = await pb.collection('system_settings').getList(1, 1);
+                const records = await directus.request(readItems('system_settings', {
+                    limit: 1
+                }));
 
-                if (records.items.length > 0) {
-                    const record = records.items[0];
-                    setSettingsId(record.id);
+                if (records.length > 0) {
+                    const record = records[0] as SystemSettingsData;
+                    setSettingsId(record.id!);
                     setSettings({
                         siteName: record.site_name || 'acompanhantesAGORA',
                         siteMaintenance: record.maintenance_mode || false,
@@ -98,7 +100,7 @@ export default function SystemSettings() {
                     }));
                 }
             } catch (err) {
-                console.warn('Could not load settings from PocketBase, using defaults/local storage:', err);
+                console.warn('Could not load settings from Directus, using defaults/local storage:', err);
                 // Fallback
                 const localMaint = getMaintenanceMode();
                 const localFree = isFreeModeEnabled();
@@ -125,7 +127,7 @@ export default function SystemSettings() {
             setMaintenanceMode(settings.siteMaintenance, settings.maintenanceMessage);
             setFreeMode(settings.siteFreeMode);
 
-            const data: SystemSettingsData = {
+            const data = {
                 site_name: settings.siteName,
                 maintenance_mode: settings.siteMaintenance,
                 maintenance_message: settings.maintenanceMessage,
@@ -142,11 +144,11 @@ export default function SystemSettings() {
             };
 
             if (settingsId) {
-                await pb.collection('system_settings').update(settingsId, data);
+                await directus.request(updateItem('system_settings', settingsId, data));
             } else {
                 // Create if doesn't exist
-                const record = await pb.collection('system_settings').create(data);
-                setSettingsId(record.id);
+                const record = await directus.request(createItem('system_settings', data));
+                setSettingsId(record.id as string);
             }
 
             setSaveStatus({
@@ -159,11 +161,11 @@ export default function SystemSettings() {
             setTimeout(() => {
                 setSaveStatus({ type: null, message: '' });
             }, 5000);
-        } catch (error) {
+        } catch (error: any) {
             console.error('Save error:', error);
             setSaveStatus({
                 type: 'error',
-                message: error instanceof Error ? error.message : 'Erro ao salvar configurações'
+                message: error.message || 'Erro ao salvar configurações'
             });
         } finally {
             setSaving(false);

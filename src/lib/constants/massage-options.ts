@@ -3,13 +3,17 @@
 export const MASSAGE_TYPES = [
     'Terapêuticas',
     'Relaxantes',
+    'Sensoriais',
     'Corpo a corpo',
     'Tântricas',
-    'Prostática'
+    'Prostática',
+    'Tailandesa'
 ] as const;
 
 export const OTHER_SERVICES = [
-    'Depilação'
+    'Depilação',
+    'Estética',
+    'Reflexologia podal'
 ] as const;
 
 export const HAPPY_ENDING = [
@@ -32,7 +36,7 @@ export const SERVICE_TO = [
     'Homens',
     'Mulheres',
     'Casais',
-    'Pessoas com deficiência'
+    'Deficientes físicos'
 ] as const;
 
 export type MassageType = typeof MASSAGE_TYPES[number];

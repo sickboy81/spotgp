@@ -1,8 +1,11 @@
 import React, { useState } from 'react';
 import { X, Film } from 'lucide-react';
-import { pb } from '@/lib/pocketbase';
+import { directus } from '@/lib/directus';
+import { uploadFiles, createItem } from '@directus/sdk';
 import { useAuth } from '@/hooks/useAuth';
 import { cn } from '@/lib/utils';
+import { validateFile, FILE_VALIDATION_CONFIGS } from '@/lib/utils/file-validation';
+import { logger } from '@/lib/utils/logger';
 
 interface VideoUploaderProps {
     onUploadComplete?: () => void;
@@ -14,20 +17,15 @@ export function VideoUploader({ onUploadComplete }: VideoUploaderProps) {
     const [error, setError] = useState<string | null>(null);
     const [videoFile, setVideoFile] = useState<File | null>(null);
 
-    const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
         setError(null);
         if (e.target.files && e.target.files[0]) {
             const file = e.target.files[0];
 
-            // Validate size (50MB)
-            if (file.size > 50 * 1024 * 1024) {
-                setError("File size exceeds 50MB limit.");
-                return;
-            }
-
-            // Validate type
-            if (!file.type.startsWith('video/')) {
-                setError("Please select a valid video file.");
+            // Advanced validation with magic bytes
+            const validation = await validateFile(file, FILE_VALIDATION_CONFIGS.video);
+            if (!validation.valid) {
+                setError(validation.errors.join('. '));
                 return;
             }
 
@@ -42,19 +40,28 @@ export function VideoUploader({ onUploadComplete }: VideoUploaderProps) {
         setError(null);
 
         try {
+            // 1. Upload file to Directus Files
             const formData = new FormData();
             formData.append('file', videoFile);
-            formData.append('profile_id', user.id);
-            formData.append('type', 'video');
 
-            await pb.collection('media').create(formData);
+            const fileResult: any = await directus.request(uploadFiles(formData));
+            // Handle both single object and array return types
+            const uploadedFile = Array.isArray(fileResult) ? fileResult[0] : fileResult;
+            const fileId = uploadedFile.id;
+
+            // 2. Create record in 'media' collection
+            await directus.request(createItem('media', {
+                profile_id: user.id,
+                type: 'video',
+                file: fileId
+            }));
 
             setVideoFile(null);
             if (onUploadComplete) onUploadComplete();
             alert("Video uploaded successfully!");
 
         } catch (err: any) {
-            console.error('Upload failed:', err);
+            logger.error('Upload failed:', err);
             setError(err.message || 'Upload failed');
         } finally {
             setUploading(false);

@@ -101,3 +101,7 @@
 5. **MÉDIA**: Adicionar headers de segurança
 6. **MÉDIA**: Melhorar sanitização de inputs
 
+
+
+
+

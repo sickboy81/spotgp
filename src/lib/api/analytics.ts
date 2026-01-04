@@ -1,6 +1,8 @@
 // API functions for analytics and statistics
 import { getProfileViews } from './views';
-import { pb } from '@/lib/pocketbase';
+import { directus } from '@/lib/directus';
+import { readItems, createItem } from '@directus/sdk';
+import { logger } from '../utils/logger';
 
 export interface ProfileClick {
     id: string;
@@ -8,7 +10,7 @@ export interface ProfileClick {
     click_type: 'whatsapp' | 'telegram' | 'instagram' | 'twitter' | 'phone' | 'message';
     viewer_id?: string | null;
     viewer_session?: string | null;
-    created: string;
+    date_created: string;
 }
 
 export interface AnalyticsData {
@@ -52,12 +54,12 @@ export async function recordProfileClick(
             viewer_session: sessionId,
         };
 
-        await pb.collection('profile_clicks').create(clickData);
-        saveClickToLocalStorage(clickData);
+        await directus.request(createItem('profile_clicks', clickData));
+        saveClickToLocalStorage({ ...clickData, date_created: new Date().toISOString() });
 
         return { success: true };
     } catch (err: any) {
-        console.warn('Error recording click in PocketBase, using localStorage:', err);
+        logger.warn('Error recording click in Directus, using localStorage:', err);
 
         const sessionId = sessionStorage.getItem('spotgp_session_id') || `session_${Date.now()}`;
         const clickData = {
@@ -65,6 +67,7 @@ export async function recordProfileClick(
             click_type: clickType,
             viewer_id: viewerId || null,
             viewer_session: sessionId,
+            date_created: new Date().toISOString(),
         };
 
         saveClickToLocalStorage(clickData);
@@ -144,19 +147,23 @@ async function getProfileClicks(
     byType: Record<string, number>;
 }> {
     try {
-        const filterParts = [`profile_id = "${profileId}"`];
+        const filter: any = {
+            _and: [{ profile_id: { _eq: profileId } }]
+        };
+
         if (startDate) {
-            filterParts.push(`created >= "${startDate.toISOString()}"`);
+            filter._and.push({ date_created: { _gte: startDate.toISOString() } });
         }
 
-        const data = await pb.collection('profile_clicks').getFullList<ProfileClick>({
-            filter: filterParts.join(' && '),
-        });
+        const data = await directus.request(readItems('profile_clicks', {
+            filter,
+            limit: -1
+        }));
 
         if (data && data.length > 0) {
             const total = data.length;
             const byType: Record<string, number> = {};
-            data.forEach((click) => {
+            data.forEach((click: any) => {
                 byType[click.click_type] = (byType[click.click_type] || 0) + 1;
             });
             return { total, byType };
@@ -164,7 +171,7 @@ async function getProfileClicks(
 
         return getClicksFromLocalStorage(profileId, startDate);
     } catch (err: any) {
-        console.warn('Error fetching clicks from PocketBase, using localStorage:', err);
+        logger.warn('Error fetching clicks from Directus, using localStorage:', err);
         return getClicksFromLocalStorage(profileId, startDate);
     }
 }
@@ -227,7 +234,7 @@ function saveClickToLocalStorage(click: any): void {
     const newClick: ProfileClick = {
         ...click,
         id: click.id || `click_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-        created: click.created || new Date().toISOString(),
+        date_created: click.date_created || new Date().toISOString(),
     } as ProfileClick;
 
     clicks.push(newClick);
@@ -249,7 +256,7 @@ function getClicksFromLocalStorage(
     let clicks = getClicksFromLocalStorageArray().filter(c => c.profile_id === profileId);
 
     if (startDate) {
-        clicks = clicks.filter(c => new Date(c.created) >= startDate);
+        clicks = clicks.filter(c => new Date(c.date_created) >= startDate);
     }
 
     const total = clicks.length;

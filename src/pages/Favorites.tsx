@@ -2,9 +2,11 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { MOCK_PROFILES } from '@/lib/mock-data';
 import { MapPin, Heart } from 'lucide-react';
-import { pb } from '@/lib/pocketbase';
+import { directus } from '@/lib/directus';
+import { readItems } from '@directus/sdk';
 import { LazyImage } from '@/components/features/media/LazyImage';
 import { getCurrentOnlineStatus, ProfileData } from '@/lib/api/profile';
+import { sanitizeInput } from '@/lib/utils/validation';
 
 export default function Favorites() {
     const [favorites, setFavorites] = useState<string[]>([]);
@@ -27,48 +29,51 @@ export default function Favorites() {
 
     async function fetchFavoriteProfiles(ids: string[]) {
         try {
-            // 1. Try fetching from PocketBase
+            // 1. Try fetching from Directus
             if (!ids || ids.length === 0) {
                 setProfiles([]);
                 setIsLoading(false);
                 return;
             }
 
-            // Exclude mock IDs from PB query
+            // Exclude mock IDs from API query
             const realIds = ids.filter(id => !id.startsWith('mock-'));
             let data: any[] = [];
 
             if (realIds.length > 0) {
-                const filter = realIds.map(id => `id = "${id}"`).join(' || ');
-                const list = await pb.collection('profiles').getFullList({
-                    filter,
-                });
-                data = list;
-
-                // Fetch media for these profiles
-                const mediaFilter = realIds.map(id => `profile_id = "${id}"`).join(' || ');
-                let mediaMap: Record<string, any[]> = {};
-
+                // Fetch Profiles
                 try {
-                    const mediaList = await pb.collection('media').getFullList({
-                        filter: mediaFilter,
-                    });
-                    mediaList.forEach(m => {
-                        if (!mediaMap[m.profile_id]) mediaMap[m.profile_id] = [];
-                        mediaMap[m.profile_id].push({
-                            type: m.type || 'image',
-                            url: m.url || pb.files.getUrl(m, m.file || 'file')
-                        });
-                    });
-                } catch (e) {
-                    // ignore
-                }
+                    const profileData = await directus.request(readItems('profiles', {
+                        filter: { id: { _in: realIds } }
+                    }));
+                    data = profileData;
 
-                // Attach media
-                data = data.map(p => ({
-                    ...p,
-                    media: mediaMap[p.id] || []
-                }));
+                    // Fetch media for these profiles
+                    const mediaMap: Record<string, any[]> = {};
+                    try {
+                        const mediaList = await directus.request(readItems('media', {
+                            filter: { profile_id: { _in: realIds } }
+                        }));
+                        mediaList.forEach((m: any) => {
+                            if (!mediaMap[m.profile_id]) mediaMap[m.profile_id] = [];
+                            mediaMap[m.profile_id].push({
+                                type: m.type || 'image',
+                                url: `${import.meta.env.VITE_DIRECTUS_URL}/assets/${m.file}`
+                            });
+                        });
+                    } catch (e) {
+                        console.warn("Failed to fetch media list", e);
+                    }
+
+                    // Attach media
+                    data = data.map((p: any) => ({
+                        ...p,
+                        media: mediaMap[p.id] || []
+                    }));
+
+                } catch (e) {
+                    console.warn("Failed to fetch profiles from Directus", e);
+                }
             }
 
             // Merge with mock profiles
@@ -142,7 +147,8 @@ export default function Favorites() {
                                     src={mainImage}
                                     alt={profile.display_name || 'Profile'}
                                     className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-110"
-                                />
+                                >
+                                </LazyImage>
 
                                 {/* Status Badges (Top Left) */}
                                 <div className="absolute top-1.5 left-1.5 flex flex-col gap-1 z-20">
@@ -167,12 +173,12 @@ export default function Favorites() {
 
                                 <div className="absolute bottom-0 left-0 right-0 p-2.5 transform translate-y-1 group-hover:translate-y-0 transition-transform duration-300">
                                     <div className="mb-0.5">
-                                        <h3 className="text-sm font-bold font-serif text-white leading-none truncate">{profile.display_name}</h3>
+                                        <h3 className="text-sm font-bold font-serif text-white leading-none truncate">{sanitizeInput(profile.display_name || '')}</h3>
                                     </div>
                                     <div className="flex items-stretch justify-between text-[10px] text-gray-300">
                                         <div className="flex items-center gap-0.5 truncate mr-1">
                                             <MapPin className="w-2.5 h-2.5 text-primary flex-shrink-0" />
-                                            <span className="truncate">{profile.city}</span>
+                                            <span className="truncate">{sanitizeInput(profile.city || '')}</span>
                                         </div>
                                         <span className="font-bold text-white flex-shrink-0">R$ {profile.price}</span>
                                     </div>

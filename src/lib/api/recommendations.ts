@@ -1,5 +1,6 @@
 // API functions for profile recommendations
-import { pb } from '@/lib/pocketbase';
+import { directus } from '@/lib/directus';
+import { readItem, readItems } from '@directus/sdk';
 import { MOCK_PROFILES } from '../mock-data';
 
 export interface RecommendedProfile {
@@ -23,33 +24,43 @@ export async function getRecommendedProfiles(
     limit = 8
 ): Promise<RecommendedProfile[]> {
     try {
-        const referenceProfile = await pb.collection('profiles').getOne(profileId);
+        // Read reference profile
+        const referenceProfile = await directus.request(readItem('profiles', profileId));
 
-        let filter = `id != "${profileId}" && is_banned = false`;
+        let filter: any = {
+            _and: [
+                { id: { _neq: profileId } },
+                { is_banned: { _eq: false } }
+            ]
+        };
+
         if (referenceProfile.category) {
-            filter += ` && category = "${referenceProfile.category}"`;
+            // Add category filter
+            filter._and.push({ category: { _eq: referenceProfile.category } });
         }
 
-        const result = await pb.collection('profiles').getList(1, limit * 2, {
+        const result = await directus.request(readItems('profiles', {
             filter,
-        });
+            limit: limit * 2, // Fetch more to score them
+            fields: ['*', 'media.*'] // Fetch media if needed for scoring/display
+        }));
 
-        if (result.items.length > 0) {
-            const scoredProfiles = result.items
-                .map(profile => ({
+        if (result.length > 0) {
+            const scoredProfiles = result
+                .map((profile: any) => ({
                     ...profile,
                     score: calculateRecommendationScore(referenceProfile, profile),
-                    views: (profile as any).views || 0,
+                    views: profile.views || 0,
                 }))
-                .sort((a, b) => b.score - a.score)
+                .sort((a: any, b: any) => b.score - a.score)
                 .slice(0, limit);
 
-            return scoredProfiles as unknown as RecommendedProfile[];
+            return scoredProfiles as RecommendedProfile[];
         }
 
         return getRecommendedFromMocks(profileId, limit);
     } catch (err: any) {
-        console.warn('Error getting recommendations from PocketBase, using mocks:', err);
+        console.warn('Error getting recommendations from Directus, using mocks:', err);
         return getRecommendedFromMocks(profileId, limit);
     }
 }
@@ -157,3 +168,7 @@ function getRecommendedFromMocks(profileId: string, limit: number): RecommendedP
 
     return scored;
 }
+
+
+
+

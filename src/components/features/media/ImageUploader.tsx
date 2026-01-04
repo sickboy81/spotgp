@@ -1,8 +1,11 @@
 import React, { useState } from 'react';
 import { X, Upload, Loader2, CheckCircle } from 'lucide-react';
-import { pb } from '@/lib/pocketbase';
+import { directus } from '@/lib/directus';
+import { uploadFiles, createItem } from '@directus/sdk';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
+import { validateFile, FILE_VALIDATION_CONFIGS } from '@/lib/utils/file-validation';
+import { logger } from '@/lib/utils/logger';
 
 interface ImageFileWithPreview {
     file: File;
@@ -87,21 +90,32 @@ export function ImageUploader({
             fileToUpload = await compressImage(file);
         }
 
-        const formData = new FormData();
-        formData.append('file', fileToUpload);
-        formData.append('profile_id', user.id); // Assuming we link it to the user
-        formData.append('type', 'image');
-
         try {
-            // Create record in 'media' collection
-            const record = await pb.collection('media').create(formData);
+            // 1. Upload file to Directus Files
+            const formData = new FormData();
+            formData.append('file', fileToUpload);
+            // Optional: Folder? formData.append('folder', folderId);
 
-            // Construct file URL: /api/files/COLLECTION_ID_OR_NAME/RECORD_ID/FILENAME
-            const fileUrl = pb.files.getUrl(record, record.file);
+            const fileResult: any = await directus.request(uploadFiles(formData));
+
+            // Handle both single object and array return types from uploadFiles
+            const uploadedFile = Array.isArray(fileResult) ? fileResult[0] : fileResult;
+            const fileId = uploadedFile.id;
+
+            // 2. Create record in 'media' collection linked to the file
+            // Assuming 'media' collection exists and has 'file' (M2O to directus_files) and 'profile_id' fields
+            await directus.request(createItem('media', {
+                profile_id: user.id,
+                type: 'image',
+                file: fileId
+            }));
+
+            // Construct file URL
+            const fileUrl = `${import.meta.env.VITE_DIRECTUS_URL}/assets/${fileId}`;
 
             return fileUrl;
         } catch (err: unknown) {
-            console.error('Upload failed:', err);
+            logger.error('Upload failed:', err);
             throw new Error((err as Error).message || 'Falha no upload');
         }
     };
@@ -115,6 +129,20 @@ export function ImageUploader({
 
         if (imageFiles.length === 0) {
             setError('Por favor, selecione apenas arquivos de imagem.');
+            return;
+        }
+
+        // Advanced validation with magic bytes
+        const validationErrors: string[] = [];
+        for (const file of imageFiles) {
+            const validation = await validateFile(file, FILE_VALIDATION_CONFIGS.image);
+            if (!validation.valid) {
+                validationErrors.push(`${file.name}: ${validation.errors.join(', ')}`);
+            }
+        }
+
+        if (validationErrors.length > 0) {
+            setError(validationErrors.join('. '));
             return;
         }
 
@@ -158,7 +186,7 @@ export function ImageUploader({
                     ));
                     setUploadProgress(prev => ({ ...prev, [imageIndex]: 100 }));
                 } catch (err: unknown) {
-                    console.error('Error uploading image:', err);
+                    logger.error('Error uploading image:', err);
                     setImages(prev => prev.map((img, idx) =>
                         idx === imageIndex
                             ? { ...img, error: (err as Error).message || 'Erro ao fazer upload' }

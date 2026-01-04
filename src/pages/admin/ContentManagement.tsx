@@ -1,23 +1,25 @@
 import { useState, useEffect } from 'react';
 import { Search, Eye, EyeOff, Trash2, Image as ImageIcon, Video, Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { pb } from '@/lib/pocketbase';
+import { directus } from '@/lib/directus';
+import { readItems, updateItem, deleteItem } from '@directus/sdk';
+import { sanitizeInput } from '@/lib/utils/validation';
 import { cn } from '@/lib/utils';
-import { RecordModel } from 'pocketbase';
 
 interface MediaItem {
     type: 'image' | 'video';
     url: string;
 }
 
-interface Profile extends RecordModel {
+interface Profile {
+    id: string;
     display_name?: string;
     city?: string;
     ad_id?: string;
     role?: string;
-    is_banned?: boolean;
+    is_banned?: boolean; // Using is_banned as visibility toggle as per previous logic
     media?: MediaItem[];
-    // Include other fields as needed
+    [key: string]: any;
 }
 
 export default function ContentManagement() {
@@ -33,38 +35,37 @@ export default function ContentManagement() {
     const loadProfiles = async () => {
         setLoading(true);
         try {
-            const records = await pb.collection('profiles').getFullList<Profile>({
-                sort: '-created',
-                filter: 'role = "advertiser"',
-                expand: 'media_via_profile_id', // Assuming reverse relation exists
-            });
+            // Fetch profiles
+            const profileRecords = await directus.request(readItems('profiles', {
+                filter: { role: { _eq: 'advertiser' } },
+                sort: ['-date_created'], // Directus uses date_created
+                limit: -1,
+            }));
 
-            // Map and normalize data if needed. 
-            // For now assuming the structure from previous code which seemed to rely on a 'media' property 
-            // potentially populated by a manual fetch or hook in other components.
-            // Since we are not using the hook here, we might not get media if it's not in the record.
-            // Let's assume for now we might need to fetch media or rely on expand.
-            // If strictly following Home.tsx optimization, we should fetch media.
-            // But let's verify if `media` field exists on profile (it doesn't in standard PB relation usually).
-            // It's likely we need to fetch media separatedly.
+            // Fetch media for these profiles
+            // We can optimize this by fetching all media for these profiles or per profile.
+            // For simplicity and matching previous potential logic, we'll map.
+            // Directus deep fetching: fields: ['*', 'media.*'] might work if relation exists.
+            // Assuming no direct relation in 'media' field on profile, but 'media' collection has profile_id.
 
-            // To be safe and clean, let's fetch media for these profiles.
-            const profilesWithMedia = await Promise.all(records.map(async (profile) => {
+            const profilesWithMedia = await Promise.all(profileRecords.map(async (profile: any) => {
+                let mediaItems: MediaItem[] = [];
                 try {
-                    const mediaRecords = await pb.collection('media').getFullList({
-                        filter: `profile_id="${profile.id}"`,
-                        sort: '-created'
-                    });
-
-                    const mediaItems: MediaItem[] = mediaRecords.map(m => ({
-                        type: m.type as 'image' | 'video', // Adjust as per your media collection schema
-                        url: pb.files.getUrl(m, m.file)
+                    const mediaRecords = await directus.request(readItems('media', {
+                        filter: { profile_id: { _eq: profile.id } },
+                        sort: ['-date_created'],
+                        fields: ['file', 'type']
                     }));
 
-                    return { ...profile, media: mediaItems };
+                    mediaItems = mediaRecords.map((m: any) => ({
+                        type: m.type as 'image' | 'video',
+                        url: `${import.meta.env.VITE_DIRECTUS_URL}/assets/${m.file}`
+                    }));
                 } catch {
-                    return profile;
+                    // Ignore error
                 }
+
+                return { ...profile, media: mediaItems } as Profile;
             }));
 
             setProfiles(profilesWithMedia);
@@ -77,10 +78,9 @@ export default function ContentManagement() {
 
     const handleToggleVisibility = async (profileId: string, currentHidden: boolean | undefined) => {
         try {
-            // Assuming 'is_banned' is used for visibility hiding as per previous code context
-            await pb.collection('profiles').update(profileId, {
+            await directus.request(updateItem('profiles', profileId, {
                 is_banned: !currentHidden
-            });
+            }));
 
             await loadProfiles();
         } catch (error) {
@@ -90,24 +90,30 @@ export default function ContentManagement() {
     };
 
     const handleDeleteContent = async (profileId: string) => {
-        // eslint-disable-next-line no-restricted-globals
         if (!confirm('Tem certeza que deseja deletar este conteúdo? Esta ação não pode ser desfeita!')) return;
 
         try {
-            // First delete media
+            // Delete media first
             try {
-                const mediaItems = await pb.collection('media').getFullList({
-                    filter: `profile_id="${profileId}"`
-                });
+                const mediaItems = await directus.request(readItems('media', {
+                    filter: { profile_id: { _eq: profileId } },
+                    fields: ['id']
+                }));
+
                 for (const item of mediaItems) {
-                    await pb.collection('media').delete(item.id);
+                    await directus.request(deleteItem('media', item.id));
                 }
             } catch (e) {
                 console.warn("Error deleting media", e);
             }
 
-            // Then delete profile
-            await pb.collection('profiles').delete(profileId);
+            // Delete profile
+            await directus.request(deleteItem('profiles', profileId));
+
+            // Also delete associated user? Preferable but risky if we don't know the ID.
+            // Profile usually cascade deletes from user, or vice versa?
+            // Directus doesn't auto-cascade unless configured in schema.
+            // For now, just deleting profile as requested.
 
             await loadProfiles();
             alert('Conteúdo deletado com sucesso.');
@@ -212,12 +218,12 @@ export default function ContentManagement() {
                                 </div>
                                 <div className="p-4 space-y-3">
                                     <div>
-                                        <h3 className="font-semibold text-lg">{profile.display_name || 'Sem nome'}</h3>
+                                        <h3 className="font-semibold text-lg">{sanitizeInput(profile.display_name || 'Sem nome')}</h3>
                                         {profile.ad_id && (
                                             <p className="text-xs text-muted-foreground font-mono">ID: {profile.ad_id}</p>
                                         )}
                                         <p className="text-sm text-muted-foreground">
-                                            {profile.city || 'Cidade não informada'}
+                                            {sanitizeInput(profile.city || 'Cidade não informada')}
                                         </p>
                                     </div>
 
@@ -272,3 +278,7 @@ export default function ContentManagement() {
         </div>
     );
 }
+
+
+
+

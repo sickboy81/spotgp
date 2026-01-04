@@ -1,23 +1,42 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useParams, useNavigate, Link } from 'react-router-dom';
-import { pb } from '@/lib/pocketbase';
-import { RecordModel } from 'pocketbase';
-import { Play, MapPin, Check, Instagram, Send, Flag, MessageSquare } from 'lucide-react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { directus } from '@/lib/directus';
+import { readItems, readItem } from '@directus/sdk';
+import { Play, MapPin, Check, Instagram, Send } from 'lucide-react';
+import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import 'leaflet/dist/leaflet.css';
+import L from 'leaflet';
+
 import { MOCK_PROFILES } from '@/lib/mock-data';
 import { ReportModal } from '@/components/features/report/ReportModal';
 import { recordProfileView } from '@/lib/api/views';
 import { recordProfileClick } from '@/lib/api/analytics';
 import { useAuth } from '@/hooks/useAuth';
-import { getRecommendedProfiles, RecommendedProfile } from '@/lib/api/recommendations';
 import { SEOHead } from '@/components/features/seo/SEOHead';
 import { ProfileData } from '@/lib/api/profile';
+import { sanitizeInput } from '@/lib/utils/validation';
 
-// Define a type that matches what we expect from PB + Media join
+// Fix Leaflet Default Icon
+import icon from 'leaflet/dist/images/marker-icon.png';
+import iconShadow from 'leaflet/dist/images/marker-shadow.png';
+
+let DefaultIcon = L.icon({
+    iconUrl: icon,
+    shadowUrl: iconShadow,
+    iconSize: [25, 41],
+    iconAnchor: [12, 41]
+});
+
+L.Marker.prototype.options.icon = DefaultIcon;
+
+// Define a type that matches what we expect from Directus
 type ProfileWithMedia = ProfileData & {
     id: string;
     verified?: boolean;
     media?: Array<{ url: string; type: string }>;
+    map_lat?: number | string;
+    map_lng?: number | string;
 };
 
 export default function ProfileDetails() {
@@ -29,8 +48,10 @@ export default function ProfileDetails() {
     const [isLightboxOpen, setIsLightboxOpen] = useState(false);
     const [lightboxMedia, setLightboxMedia] = useState<string | null>(null);
     const [isReportModalOpen, setIsReportModalOpen] = useState(false);
-    const [recommendedProfiles, setRecommendedProfiles] = useState<RecommendedProfile[]>([]);
     const { user } = useAuth();
+
+    // NEW: Coords state
+    const [coords, setCoords] = useState<[number, number] | null>(null);
 
     // React Query for Caching
     const { data: profile, isLoading } = useQuery<ProfileWithMedia | null>({
@@ -44,47 +65,69 @@ export default function ProfileDetails() {
                 const mockProfile = MOCK_PROFILES.find(p =>
                     p.id === identifier || p.username === identifier
                 );
-                if (mockProfile) return mockProfile;
+                if (mockProfile) return mockProfile as any;
                 if (username) return null;
             }
 
             try {
-                let profileData: RecordModel | null = null;
+                let profileData: any = null;
 
                 // Fetch Profile
                 if (username) {
-                    const list = await pb.collection('profiles').getList(1, 1, {
-                        filter: `username = "${username}"`,
-                    });
-                    if (list.items.length > 0) {
-                        profileData = list.items[0];
+                    const profiles = await directus.request(readItems('profiles', {
+                        filter: { username: { _eq: username } },
+                        limit: 1
+                    }));
+                    if (profiles.length > 0) {
+                        profileData = profiles[0];
                     }
                 } else if (id) {
-                    profileData = await pb.collection('profiles').getOne(id);
+                    profileData = await directus.request(readItem('profiles', id));
                 }
 
                 if (!profileData) return null; // Not found
 
                 // Fetch Media associated with this profile
-                // Assuming 'media' collection has a 'profile_id' field
-                let mediaList: RecordModel[] = [];
+                let mediaList: any[] = [];
                 try {
-                    mediaList = await pb.collection('media').getFullList({
-                        filter: `profile_id = "${profileData.id}"`,
-                        sort: '-created',
-                    });
+                    mediaList = await directus.request(readItems('media', {
+                        filter: { profile_id: { _eq: profileData.id } },
+                        sort: ['-date_created'], // Directus uses date_created
+                    }));
                 } catch (e) {
                     console.warn('Failed to fetch media for profile', profileData.id, e);
                 }
 
                 // Transform media to expected format
-                // If the media items use PB file storage, we need to generate URLs.
-                // Assuming ImageUploader stores 'url' directly or we construct it.
-                // Checking ImageUploader migration: it stores 'url' field directly in the record.
-                const formattedMedia = mediaList.map((m: RecordModel) => ({
+                let formattedMedia = mediaList.map((m: any) => ({
                     type: m.type || 'image',
-                    url: m.url || pb.files.getUrl(m, m.file || 'file') // Fallback if regular file field used
+                    url: `${import.meta.env.VITE_DIRECTUS_URL}/assets/${m.file}`
                 }));
+
+                // Merge with 'photos' field if available (New system)
+                if (profileData.photos) {
+                    let photoUrls: any[] = [];
+                    if (Array.isArray(profileData.photos)) {
+                        photoUrls = profileData.photos.map((url: string) => ({
+                            type: 'image',
+                            url: url.startsWith('http') ? url : `${import.meta.env.VITE_DIRECTUS_URL}/assets/${url}`
+                        }));
+                    } else if (typeof profileData.photos === 'string') {
+                        try {
+                            const parsed = JSON.parse(profileData.photos);
+                            if (Array.isArray(parsed)) {
+                                photoUrls = parsed.map((url: string) => ({
+                                    type: 'image',
+                                    url: url.startsWith('http') ? url : `${import.meta.env.VITE_DIRECTUS_URL}/assets/${url}`
+                                }));
+                            }
+                        } catch (e) {
+                            // Ignore
+                        }
+                    }
+                    // Add to beginning
+                    formattedMedia = [...photoUrls, ...formattedMedia];
+                }
 
                 return {
                     ...profileData,
@@ -92,12 +135,13 @@ export default function ProfileDetails() {
                 } as ProfileWithMedia;
 
             } catch (err: unknown) {
-                if (err && typeof err === 'object' && 'status' in err && (err as { status: number }).status === 404) return null;
-                throw err;
+                console.error("Error fetching profile", err);
+                return null;
             }
         },
         enabled: !!(id || username),
         staleTime: 1000 * 60 * 5,
+        retry: false
     });
 
     const mediaList = profile?.media;
@@ -108,28 +152,44 @@ export default function ProfileDetails() {
         window.scrollTo(0, 0);
     }, [id, username]);
 
+    // Geocoding Effect (Updated)
+    useEffect(() => {
+        if (profile?.city) {
+            // Check if we have lat/lng in profile first (future proofing)
+            if (profile.map_lat && profile.map_lng) {
+                setCoords([Number(profile.map_lat), Number(profile.map_lng)]);
+                return;
+            }
+
+            // Fallback to Nominatim
+            fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(profile.city)}`)
+                .then(res => res.json())
+                .then(data => {
+                    if (data && data.length > 0) {
+                        setCoords([parseFloat(data[0].lat), parseFloat(data[0].lon)]);
+                    } else {
+                        // Default to Sao Paulo if not found
+                        setCoords([-23.5505, -46.6333]);
+                    }
+                })
+                .catch(err => {
+                    console.error("Geocoding error:", err);
+                    setCoords([-23.5505, -46.6333]);
+                });
+        }
+    }, [profile?.city, profile?.map_lat, profile?.map_lng]);
+
     // Record profile view when profile loads
     useEffect(() => {
-        if (profile?.id && !profile.id.startsWith('mock-')) {
-            recordProfileView(profile.id, user?.id || null).catch(err => {
+        if (profile?.id && !String(profile.id).startsWith('mock-')) {
+            recordProfileView(String(profile.id), user?.id || null).catch(err => {
                 console.warn('Failed to record profile view:', err);
             });
         }
     }, [profile?.id, user?.id]);
 
-    // Load recommended profiles
-    useEffect(() => {
-        if (profile?.id) {
-            getRecommendedProfiles(profile.id, 4).then(profiles => {
-                setRecommendedProfiles(profiles);
-            }).catch(err => {
-                console.warn('Failed to load recommendations:', err);
-            });
-        }
-    }, [profile?.id]);
 
-
-    // Lightbox Handlers (unchanged)
+    // Lightbox Handlers
     const openLightbox = (mediaUrl: string) => {
         setLightboxMedia(mediaUrl);
         setIsLightboxOpen(true);
@@ -155,7 +215,7 @@ export default function ProfileDetails() {
         setLightboxMedia(mediaList[prevIndex].url);
     }, [mediaList, lightboxMedia]);
 
-    // Helper functions (unchanged)
+    // Helper functions
     const getWhatsAppLink = (phoneNumber: string | null | undefined, displayName: string | null | undefined): string | null => {
         if (!phoneNumber) return null;
         const cleanPhone = phoneNumber.replace(/\D/g, '');
@@ -295,7 +355,7 @@ export default function ProfileDetails() {
                                     }
                                 }}
                             >
-                                {/* Desktop Hover Hint */}
+                                {/* Hover hint */}
                                 <div className="absolute inset-0 z-30 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100 pointer-events-none">
                                     <span className="bg-black/60 text-white px-4 py-2 rounded-full backdrop-blur-md text-sm font-medium flex items-center gap-2">
                                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m15 15 6 6m-11-4a7 7 0 1 1 0-14 7 7 0 0 1 0 14zM8 8l4 4m0-4-4 4" /></svg>
@@ -320,8 +380,7 @@ export default function ProfileDetails() {
                                             className="h-full w-full object-cover"
                                         />
                                     )}
-
-                                    {/* Watermark Overlay */}
+                                    {/* Watermark */}
                                     <div className="absolute inset-0 z-20 flex items-center justify-center opacity-30 pointer-events-none select-none">
                                         <div className="relative transform -rotate-12">
                                             <span className="text-white font-black uppercase text-[8vw] md:text-[4vw] tracking-wider opacity-50" style={{ fontFamily: "'Montserrat', sans-serif" }}>
@@ -338,11 +397,11 @@ export default function ProfileDetails() {
                                     {profile.ad_id && (
                                         <p className="text-xs text-white/70 mb-1 font-mono">ID: {profile.ad_id}</p>
                                     )}
-                                    <p className="text-lg opacity-90 font-medium">{profile.age} anos • {profile.city}</p>
+                                    <p className="text-lg opacity-90 font-medium">{profile.age} anos • {sanitizeInput(profile.city || '')}</p>
                                 </div>
                             </div>
 
-                            {/* Thumbs - Below Main Image (Mobile) */}
+                            {/* Thumbs Mobile */}
                             <div className="flex md:hidden mt-4 px-4 space-x-3 overflow-x-auto pb-4 scrollbar-hide">
                                 {mediaList?.slice(1).map((media, i) => (
                                     <button
@@ -360,7 +419,7 @@ export default function ProfileDetails() {
                                 ))}
                             </div>
 
-                            {/* Thumbs - Below Main Image (Desktop) */}
+                            {/* Thumbs Desktop */}
                             <div className="hidden md:flex mt-6 space-x-3 overflow-x-auto pb-4 scrollbar-hide">
                                 {mediaList?.slice(1).map((media, i) => (
                                     <button
@@ -381,14 +440,12 @@ export default function ProfileDetails() {
 
                         {/* RIGHT COLUMN - INFO */}
                         <div className="px-6 py-8 md:p-0 md:pt-4 space-y-10">
-
                             {/* Header (Desktop) */}
                             <div className="hidden md:block pb-8 border-b border-border/50">
                                 <div className="flex justify-between items-start">
                                     <div>
                                         <div className="flex items-center gap-3 mb-2">
-                                            <h1 className="text-6xl font-serif font-bold text-foreground tracking-tight">{profile.display_name}</h1>
-                                            {/* Logic for verified might need update if not in ProfileData */}
+                                            <h1 className="text-6xl font-serif font-bold text-foreground tracking-tight">{sanitizeInput(profile.display_name || '')}</h1>
                                             {profile.verified && <Check className="w-8 h-8 text-blue-500" />}
                                         </div>
                                         {profile.ad_id && (
@@ -397,7 +454,7 @@ export default function ProfileDetails() {
                                         <div className="flex items-center gap-3 text-muted-foreground text-xl">
                                             <div className="flex items-center gap-1 text-primary">
                                                 <MapPin className="w-5 h-5 fill-current" />
-                                                <span className="font-semibold">{profile.city || 'São Paulo'}</span>
+                                                <span className="font-semibold">{sanitizeInput(profile.city || 'São Paulo')}</span>
                                             </div>
                                             <span className="text-border">•</span>
                                             <span className="text-green-500 flex items-center gap-1.5 font-medium text-sm bg-green-500/10 px-3 py-1 rounded-full">
@@ -420,7 +477,7 @@ export default function ProfileDetails() {
                                     Sobre Mim
                                 </h3>
                                 <div className="prose prose-invert prose-lg text-muted-foreground/90 leading-relaxed font-light">
-                                    <p>{profile.bio || 'Olá! Sou uma pessoa carinhosa e divertida, pronta para realizar seus desejos...'}</p>
+                                    <p>{sanitizeInput(profile.bio || 'Olá! Sou uma pessoa carinhosa e divertida, pronta para realizar seus desejos...')}</p>
                                 </div>
                             </div>
 
@@ -467,7 +524,7 @@ export default function ProfileDetails() {
                                 </div>
                             </div>
 
-                            {/* Location & Map Section */}
+                            {/* Location & Map Section - LEAFLET */}
                             <div className="space-y-6 pt-8 border-t border-border/50">
                                 <h3 className="text-2xl font-serif font-bold text-foreground">Atendimento</h3>
                                 <div className="flex gap-4 mb-6">
@@ -487,19 +544,31 @@ export default function ProfileDetails() {
                                     </div>
                                 </div>
 
-                                <div className="rounded-2xl overflow-hidden border border-border/50 shadow-md h-72 w-full bg-muted relative group">
-                                    <iframe
-                                        width="100%"
-                                        height="100%"
-                                        id="gmap_canvas"
-                                        src={`https://maps.google.com/maps?q=${encodeURIComponent(profile.city || 'São Paulo')}&t=&z=13&ie=UTF8&iwloc=&output=embed`}
-                                        frameBorder="0"
-                                        scrolling="no"
-                                        marginHeight={0}
-                                        marginWidth={0}
-                                        className="grayscale opacity-70 group-hover:grayscale-0 group-hover:opacity-100 transition-all duration-700"
-                                    ></iframe>
-                                    <div className="absolute top-4 left-4 bg-background/90 backdrop-blur text-sm px-4 py-2 rounded-lg shadow-lg font-medium">
+                                <div className="rounded-2xl overflow-hidden border border-border/50 shadow-md h-72 w-full bg-muted relative group z-0">
+                                    {coords ? (
+                                        <MapContainer
+                                            center={coords}
+                                            zoom={13}
+                                            style={{ height: '100%', width: '100%' }}
+                                            scrollWheelZoom={false}
+                                        >
+                                            <TileLayer
+                                                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                                                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                                            />
+                                            <Marker position={coords}>
+                                                <Popup>
+                                                    {profile.city || 'Localização aproximada'}
+                                                </Popup>
+                                            </Marker>
+                                        </MapContainer>
+                                    ) : (
+                                        <div className="flex items-center justify-center h-full bg-muted text-muted-foreground">
+                                            Carregando mapa...
+                                        </div>
+                                    )}
+
+                                    <div className="absolute top-4 left-4 bg-background/90 backdrop-blur text-sm px-4 py-2 rounded-lg shadow-lg font-medium z-[400]">
                                         <MapPin className="w-4 h-4 inline-block mr-1 text-primary" />
                                         {profile.city || 'São Paulo'}
                                     </div>
@@ -514,8 +583,8 @@ export default function ProfileDetails() {
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         onClick={() => {
-                                            if (profile?.id && !profile.id.startsWith('mock-')) {
-                                                recordProfileClick(profile.id, 'whatsapp', user?.id || null).catch(console.warn);
+                                            if (profile?.id && !String(profile.id).startsWith('mock-')) {
+                                                recordProfileClick(String(profile.id), 'whatsapp', user?.id || null).catch(console.warn);
                                             }
                                         }}
                                         className="w-full bg-[#25D366] hover:bg-[#20bd5a] text-white py-5 rounded-2xl font-bold text-xl transition-all shadow-xl hover:shadow-2xl transform hover:-translate-y-1 flex items-center justify-center gap-3"
@@ -523,201 +592,52 @@ export default function ProfileDetails() {
                                         <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z" /></svg>
                                         WhatsApp
                                     </a>
-                                ) : (
-                                    <button
-                                        disabled
-                                        className="w-full bg-gray-400 text-white py-5 rounded-2xl font-bold text-xl cursor-not-allowed flex items-center justify-center gap-3"
+                                ) : null}
+                                {/* Mobile Extra Buttons */}
+                                {profile.telegram && (
+                                    <a
+                                        href={`https://t.me/${profile.telegram}`}
+                                        onClick={() => {
+                                            if (profile?.id && !String(profile.id).startsWith('mock-')) {
+                                                recordProfileClick(String(profile.id), 'telegram', user?.id || null).catch(console.warn);
+                                            }
+                                        }}
+                                        className="bg-[#0088cc] text-white rounded-xl flex items-center justify-center"
                                     >
-                                        <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z" /></svg>
-                                        WhatsApp
-                                    </button>
+                                        <Send className="w-6 h-6" />
+                                    </a>
                                 )}
-
-                                <button
-                                    onClick={() => {
-                                        if (profile?.id && !profile.id.startsWith('mock-')) {
-                                            recordProfileClick(profile.id, 'phone', user?.id || null).catch(console.warn);
-                                        }
-                                    }}
-                                    className="w-full flex items-center justify-center gap-3 bg-card border border-primary/50 text-white py-4 rounded-xl font-bold text-lg hover:bg-primary/10 transition-colors"
-                                >
-                                    <span className="flex items-center gap-2 text-sm text-gray-400 font-normal">
-                                        <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" /> Disponível
-                                    </span>
-                                    Ver Telefone
-                                </button>
-
-                                <div className="grid grid-cols-2 gap-4">
-                                    {profile.telegram && (
-                                        <a
-                                            href={`https://t.me/${profile.telegram}`}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            onClick={() => {
-                                                if (profile?.id && !profile.id.startsWith('mock-')) {
-                                                    recordProfileClick(profile.id, 'telegram', user?.id || null).catch(console.warn);
-                                                }
-                                            }}
-                                            className="bg-[#0088cc] hover:bg-[#007ebd] text-white py-4 rounded-xl font-bold text-lg transition-all shadow-lg hover:shadow-xl transform hover:-translate-y-1 flex items-center justify-center gap-3"
-                                        >
-                                            <Send className="w-6 h-6" />
-                                            Telegram
-                                        </a>
-                                    )}
-                                    {profile.instagram && (
-                                        <a
-                                            href={`https://instagram.com/${profile.instagram}`}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            onClick={() => {
-                                                if (profile?.id && !profile.id.startsWith('mock-')) {
-                                                    recordProfileClick(profile.id, 'instagram', user?.id || null).catch(console.warn);
-                                                }
-                                            }}
-                                            className="bg-gradient-to-tr from-[#f09433] via-[#dc2743] to-[#bc1888] text-white py-4 rounded-xl font-bold text-lg transition-all shadow-lg hover:shadow-xl transform hover:-translate-y-1 flex items-center justify-center gap-3"
-                                        >
-                                            <Instagram className="w-6 h-6" />
-                                            Instagram
-                                        </a>
-                                    )}
-                                    {profile?.id && !profile.id.startsWith('mock-') && (profile.chat_enabled !== false) && (
-                                        <Link
-                                            to={`/messages/${profile.id}`}
-                                            className="bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 py-4 rounded-xl font-bold text-lg transition-all shadow-lg hover:shadow-xl transform hover:-translate-y-1 flex items-center justify-center gap-3 col-span-2"
-                                        >
-                                            <MessageSquare className="w-6 h-6" />
-                                            Enviar Mensagem
-                                        </Link>
-                                    )}
-                                    <button
-                                        onClick={() => setIsReportModalOpen(true)}
-                                        className="bg-destructive/10 hover:bg-destructive/20 text-destructive border border-destructive/30 py-4 rounded-xl font-bold text-lg transition-all shadow-lg hover:shadow-xl transform hover:-translate-y-1 flex items-center justify-center gap-3 col-span-2"
+                                {profile.instagram && (
+                                    <a
+                                        href={`https://instagram.com/${profile.instagram}`}
+                                        onClick={() => {
+                                            if (profile?.id && !String(profile.id).startsWith('mock-')) {
+                                                recordProfileClick(String(profile.id), 'instagram', user?.id || null).catch(console.warn);
+                                            }
+                                        }}
+                                        className="bg-gradient-to-tr from-[#f09433] via-[#dc2743] to-[#bc1888] text-white rounded-xl flex items-center justify-center"
                                     >
-                                        <Flag className="w-6 h-6" />
-                                        Denunciar Perfil
-                                    </button>
-                                </div>
-
-                                <p className="text-center text-xs text-muted-foreground mt-1">
-                                    Ao clicar você concorda com nossos termos de uso
-                                </p>
+                                        <Instagram className="w-6 h-6" />
+                                    </a>
+                                )}
+                                <button className="bg-card border border-border text-foreground rounded-xl flex items-center justify-center font-bold">
+                                    Ligar
+                                </button>
                             </div>
+
+                            {/* Report Modal */}
+                            {profile && (
+                                <ReportModal
+                                    isOpen={isReportModalOpen}
+                                    onClose={() => setIsReportModalOpen(false)}
+                                    profileId={profile.id}
+                                    profileName={profile.display_name || 'Perfil'}
+                                />
+                            )}
                         </div>
                     </div>
-
-                    {/* RELATED PROFILES */}
-                    {recommendedProfiles.length > 0 && (
-                        <div className="mt-20 pt-10 border-t border-border/30 px-4 md:px-0">
-                            <h2 className="text-3xl font-serif font-bold mb-8 flex items-center gap-3">
-                                <span className="text-primary">✦</span> Você também pode gostar
-                            </h2>
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-                                {recommendedProfiles.map((recProfile) => {
-                                    const mainImage = recProfile.media?.find(m => m.type === 'image')?.url || 'https://via.placeholder.com/400x600?text=Profile';
-                                    return (
-                                        <Link
-                                            key={recProfile.id}
-                                            to={`/profile/${recProfile.id}`}
-                                            className="aspect-[3/4] bg-card rounded-2xl border border-border/50 overflow-hidden relative group cursor-pointer hover:border-primary/50 transition-all hover:shadow-xl hover:-translate-y-1"
-                                        >
-                                            <img
-                                                src={mainImage}
-                                                alt={recProfile.display_name || 'Profile'}
-                                                className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
-                                            />
-                                            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                                            <div className="absolute bottom-0 left-0 right-0 p-3 transform translate-y-4 group-hover:translate-y-0 transition-transform duration-300">
-                                                <h3 className="font-bold text-white text-sm mb-1">{recProfile.display_name}</h3>
-                                                <div className="flex items-center justify-between text-xs text-white/90">
-                                                    <span>{recProfile.city}</span>
-                                                    {recProfile.price && (
-                                                        <span className="font-bold">R$ {recProfile.price}</span>
-                                                    )}
-                                                </div>
-                                            </div>
-                                            {recProfile.verified && (
-                                                <div className="absolute top-2 right-2">
-                                                    <div className="bg-primary rounded-full p-1.5">
-                                                        <Check className="w-3 h-3 text-white" />
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </Link>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                    )}
                 </div>
-
-                {/* Mobile Sticky Footer Actions */}
-                <div className="fixed bottom-0 left-0 right-0 p-4 bg-background/90 backdrop-blur-xl border-t border-border z-40 md:hidden grid grid-cols-4 gap-3">
-                    {getWhatsAppLink(profile.phone, profile.display_name) ? (
-                        <a
-                            href={getWhatsAppLink(profile.phone, profile.display_name) || '#'}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={() => {
-                                if (profile?.id && !profile.id.startsWith('mock-')) {
-                                    recordProfileClick(profile.id, 'whatsapp', user?.id || null).catch(console.warn);
-                                }
-                            }}
-                            className="col-span-2 bg-[#25D366] text-white py-3.5 rounded-xl font-bold shadow-lg flex items-center justify-center gap-2 text-lg"
-                        >
-                            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z" /></svg>
-                            WhatsApp
-                        </a>
-                    ) : (
-                        <button
-                            disabled
-                            className="col-span-2 bg-gray-400 text-white py-3.5 rounded-xl font-bold shadow-lg flex items-center justify-center gap-2 text-lg cursor-not-allowed"
-                        >
-                            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z" /></svg>
-                            WhatsApp
-                        </button>
-                    )}
-                    {/* Mobile Extra Buttons */}
-                    {profile.telegram && (
-                        <a
-                            href={`https://t.me/${profile.telegram}`}
-                            onClick={() => {
-                                if (profile?.id && !profile.id.startsWith('mock-')) {
-                                    recordProfileClick(profile.id, 'telegram', user?.id || null).catch(console.warn);
-                                }
-                            }}
-                            className="bg-[#0088cc] text-white rounded-xl flex items-center justify-center"
-                        >
-                            <Send className="w-6 h-6" />
-                        </a>
-                    )}
-                    {profile.instagram && (
-                        <a
-                            href={`https://instagram.com/${profile.instagram}`}
-                            onClick={() => {
-                                if (profile?.id && !profile.id.startsWith('mock-')) {
-                                    recordProfileClick(profile.id, 'instagram', user?.id || null).catch(console.warn);
-                                }
-                            }}
-                            className="bg-gradient-to-tr from-[#f09433] via-[#dc2743] to-[#bc1888] text-white rounded-xl flex items-center justify-center"
-                        >
-                            <Instagram className="w-6 h-6" />
-                        </a>
-                    )}
-                    <button className="bg-card border border-border text-foreground rounded-xl flex items-center justify-center font-bold">
-                        Ligar
-                    </button>
-                </div>
-
-                {/* Report Modal */}
-                {profile && (
-                    <ReportModal
-                        isOpen={isReportModalOpen}
-                        onClose={() => setIsReportModalOpen(false)}
-                        profileId={profile.id}
-                        profileName={profile.display_name || 'Perfil'}
-                    />
-                )}
-            </div>
+            </div >
         </>
     );
 }

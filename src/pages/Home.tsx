@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useInfiniteQuery } from '@tanstack/react-query';
-import { pb } from '@/lib/pocketbase';
+import { directus } from '@/lib/directus';
+import { readItems } from '@directus/sdk';
 import { MapPin, Filter, Search, Heart, Check } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { cn, normalizeString } from '@/lib/utils';
@@ -11,6 +12,7 @@ import { NEIGHBORHOODS_BY_CITY } from '@/lib/constants/neighborhoods';
 import { reverseGeocode } from '@/lib/services/geocoding';
 import { LazyImage } from '@/components/features/media/LazyImage';
 import { getCurrentOnlineStatus, ProfileData } from '@/lib/api/profile';
+import { sanitizeInput } from '@/lib/utils/validation';
 
 export default function Home() {
     const observerTarget = useRef(null);
@@ -95,79 +97,318 @@ export default function Home() {
             async (position) => {
                 const { latitude, longitude } = position.coords;
 
-                // First, try to identify the actual city using reverse geocoding
+                // First, check if user is within a major city's area by coordinates
+                // This catches cases where Nominatim returns neighborhoods instead of the main city
                 let identifiedCity: string | null = null;
                 let identifiedState: string | null = null;
+                
+                // Check coordinates against capitals and major cities first
+                // Use larger radius for major cities (50km) to catch all neighborhoods
+                const majorCities = Object.entries(BRAZILIAN_CITIES)
+                    .filter(([_, coords]) => coords.capital) // Only capitals first
+                    .map(([name, coords]) => ({ name, ...coords }));
+                
+                // Sort by distance to find the closest capital
+                const distancesToCapitals = majorCities.map(city => ({
+                    ...city,
+                    distance: getDistance(latitude, longitude, city.lat, city.lng)
+                })).sort((a, b) => a.distance - b.distance);
+                
+                // Use larger radius for major capitals (70km covers entire metropolitan areas)
+                // This ensures we catch all neighborhoods within the city
+                const radiusForCapitals = 70;
+                
+                if (distancesToCapitals.length > 0 && distancesToCapitals[0].distance < radiusForCapitals) {
+                    identifiedCity = distancesToCapitals[0].name;
+                    identifiedState = distancesToCapitals[0].state;
+                    // Pre-fill city in the input field
+                    setCitySearch(identifiedCity);
+                    console.log(`Detected location within ${identifiedCity} area (${distancesToCapitals[0].distance.toFixed(1)}km from center) - will show in city field`);
+                }
 
-                try {
-                    const reverseResult = await reverseGeocode(latitude, longitude);
-                    if (reverseResult) {
-                        identifiedCity = reverseResult.city;
-                        identifiedState = reverseResult.state;
+                // If not found by coordinates, try reverse geocoding
+                if (!identifiedCity) {
+                    try {
+                        const reverseResult = await reverseGeocode(latitude, longitude);
+                        if (reverseResult) {
+                            identifiedCity = reverseResult.city;
+                            identifiedState = reverseResult.state;
+                        }
+                    } catch (error) {
+                        console.warn('Reverse geocoding failed:', error);
+                    }
+                } else {
+                    // We found city by coordinates, but let's also try reverse geocoding to confirm
+                    try {
+                        const reverseResult = await reverseGeocode(latitude, longitude);
+                        if (reverseResult) {
+                            // If reverse geocoding also identifies the same city or a close match, use it
+                            const reverseCity = reverseResult.city;
+                            const normalizedReverse = normalizeString(reverseCity);
+                            const normalizedIdentified = normalizeString(identifiedCity);
+                            
+                            // If they match or reverse geocoding found the same city, trust it
+                            if (normalizedReverse === normalizedIdentified || 
+                                normalizedReverse.includes(normalizedIdentified) ||
+                                normalizedIdentified.includes(normalizedReverse)) {
+                                identifiedCity = reverseCity; // Use the exact name from reverse geocoding
+                                identifiedState = reverseResult.state;
+                                console.log(`Reverse geocoding confirmed: ${identifiedCity}`);
+                            } else {
+                                // Reverse geocoding found something different, but we're in a major city area
+                                // Trust the coordinate-based detection for major cities
+                                // But still show the identified city in the field
+                                setCitySearch(identifiedCity);
+                                console.log(`Reverse geocoding found "${reverseCity}" but coordinates indicate "${identifiedCity}". Using coordinate-based detection.`);
+                            }
+                        }
+                    } catch (error) {
+                        console.warn('Reverse geocoding confirmation failed, using coordinate-based detection:', error);
+                    }
+                }
+
+                // Now process the identified city
+                if (identifiedCity && identifiedState) {
 
                         // Check if the identified city is in our supported cities list
                         // Try exact match first
+                        let matchedCity: string | undefined = undefined;
+                        
                         if (BRAZILIAN_CITIES[identifiedCity]) {
-                            setActiveFilters(prev => ({ ...prev, city: identifiedCity!, state: identifiedState!, neighborhood: '' }));
-                            setIsLocationActive(true);
-                            setUserLocation({ lat: latitude, lng: longitude });
-                            console.log(`Located via reverse geocoding: ${identifiedCity}, ${identifiedState}`);
-                            setIsLocating(false);
-                            return;
-                        }
+                            matchedCity = identifiedCity;
+                        } else {
+                            // Try case-insensitive match
+                            const cityKeys = Object.keys(BRAZILIAN_CITIES);
+                            matchedCity = cityKeys.find(city =>
+                                city.toLowerCase() === identifiedCity!.toLowerCase()
+                            );
 
-                        // Try case-insensitive match
-                        const cityKeys = Object.keys(BRAZILIAN_CITIES);
-                        const matchedCity = cityKeys.find(city =>
-                            city.toLowerCase() === identifiedCity!.toLowerCase()
-                        );
+                            // If not found, try normalized match (without accents)
+                            if (!matchedCity) {
+                                const normalizedIdentified = normalizeString(identifiedCity!);
+                                matchedCity = cityKeys.find(city => {
+                                    const normalizedCity = normalizeString(city);
+                                    return normalizedCity === normalizedIdentified;
+                                });
+                            }
+
+                            // If still not found, try partial match (contains)
+                            if (!matchedCity) {
+                                const normalizedIdentified = normalizeString(identifiedCity!);
+                                matchedCity = cityKeys.find(city => {
+                                    const normalizedCity = normalizeString(city);
+                                    return normalizedCity.includes(normalizedIdentified) || 
+                                           normalizedIdentified.includes(normalizedCity);
+                                });
+                            }
+                        }
 
                         if (matchedCity) {
-                            setActiveFilters(prev => ({ ...prev, city: matchedCity, state: BRAZILIAN_CITIES[matchedCity].state, neighborhood: '' }));
-                            setIsLocationActive(true);
-                            setUserLocation({ lat: latitude, lng: longitude });
-                            console.log(`Located via reverse geocoding (case-insensitive): ${matchedCity}`);
-                            setIsLocating(false);
-                            return;
+                            // Trust the reverse geocoding result - it tells us the actual city where user is
+                            // Validate distance only to catch obvious errors (e.g., > 100km difference)
+                            const cityCoords = BRAZILIAN_CITIES[matchedCity];
+                            const distanceToCity = getDistance(latitude, longitude, cityCoords.lat, cityCoords.lng);
+                            
+                            // Only reject if the distance is clearly wrong (> 100km)
+                            // This allows for cities with large areas or imprecise coordinates
+                            if (distanceToCity < 100) {
+                                // Set city in the input field for display, but don't use it as filter
+                                // Filter will be by distance only
+                                setIsLocationActive(true);
+                                setUserLocation({ lat: latitude, lng: longitude });
+                                setCitySearch(matchedCity); // Show city in the input field
+                                // Don't set city in activeFilters - we filter by distance, not city
+                                setActiveFilters(prev => ({ ...prev, city: '', state: '', neighborhood: '' }));
+                                console.log(`Geolocation active: showing people within ${maxDistance}km of ${matchedCity}`);
+                                setIsLocating(false);
+                                return;
+                            } else {
+                                console.warn(`City "${matchedCity}" from reverse geocoding seems incorrect (${distanceToCity.toFixed(1)}km away), will try to find better match`);
+                                // Keep the identified city name for reference, but continue to find better match
+                            }
+                        } else {
+                            // City not found in our list, but we know the state
+                            // Try to find cities in the same state that are close
+                            console.warn(`City "${identifiedCity}" from reverse geocoding not in supported list, but state is ${identifiedState}`);
+                            
+                            // If we have the state, try to find the closest city in that state
+                            if (identifiedState) {
+                                let closestInState = '';
+                                let minDistInState = Infinity;
+                                
+                                Object.entries(BRAZILIAN_CITIES).forEach(([city, coords]) => {
+                                    if (coords.state === identifiedState) {
+                                        const dist = getDistance(latitude, longitude, coords.lat, coords.lng);
+                                        if (dist < minDistInState) {
+                                            minDistInState = dist;
+                                            closestInState = city;
+                                        }
+                                    }
+                                });
+                                
+                                // If found a city in the same state within reasonable distance (< 50km), use it
+                                // But don't filter by city - use distance instead
+                                if (closestInState && minDistInState < 50) {
+                                    setIsLocationActive(true);
+                                    setUserLocation({ lat: latitude, lng: longitude });
+                                    // Clear city filter to show all people within maxDistance
+                                    setActiveFilters(prev => ({ ...prev, city: '', state: '', neighborhood: '' }));
+                                    console.log(`Geolocation active: showing people within ${maxDistance}km (near ${closestInState})`);
+                                    setIsLocating(false);
+                                    return;
+                                }
+                            }
                         }
                     }
-                } catch (error) {
-                    console.warn('Reverse geocoding failed, falling back to distance calculation:', error);
-                }
 
-                // Fallback: Find nearest supported city by distance
+                // LAST RESORT: Show options including the actual identified city
+                // Build a list that includes the actual city (even if not in our list) + nearby supported cities
+                console.warn('Reverse geocoding identified a city not in supported list. Showing options.');
+                
                 let closestCity = '';
                 let minDistance = Infinity;
+                let closestCityInState = '';
+                let minDistanceInState = Infinity;
+                const nearbyCities: Array<{ city: string; distance: number; state: string; isActualCity?: boolean }> = [];
 
+                // FIRST: Add the actual identified city as the primary option (distance = 0, it's where user is!)
+                if (identifiedCity && identifiedState) {
+                    nearbyCities.push({ 
+                        city: identifiedCity, 
+                        distance: 0, 
+                        state: identifiedState,
+                        isActualCity: true 
+                    });
+                }
+
+                // THEN: Find nearby supported cities
                 Object.entries(BRAZILIAN_CITIES).forEach(([city, coords]) => {
                     const rawDistance = getDistance(latitude, longitude, coords.lat, coords.lng);
 
-                    // Remove the bias - use actual distance
+                    // If we have a state from reverse geocoding, prioritize cities in that state
+                    if (identifiedState && coords.state === identifiedState) {
+                        if (rawDistance < minDistanceInState) {
+                            minDistanceInState = rawDistance;
+                            closestCityInState = city;
+                        }
+                    }
+
+                    // Track overall closest city
                     if (rawDistance < minDistance) {
                         minDistance = rawDistance;
                         closestCity = city;
                     }
+
+                    // Collect nearby cities within 50km for comparison
+                    if (rawDistance < 50) {
+                        nearbyCities.push({ city, distance: rawDistance, state: coords.state });
+                    }
                 });
 
-                // If within 50km, auto-select
-                if (minDistance < 50 && closestCity) {
-                    const cityState = BRAZILIAN_CITIES[closestCity].state;
-                    setActiveFilters(prev => ({ ...prev, city: closestCity, state: cityState, neighborhood: '' }));
-                    setIsLocationActive(true);
-                    setUserLocation({ lat: latitude, lng: longitude });
-                    console.log(`Located via distance: ${closestCity} (${minDistance.toFixed(1)}km away)`);
+                // Sort nearby cities by distance (actual city will be first with distance 0)
+                nearbyCities.sort((a, b) => {
+                    // Actual city always first
+                    if (a.isActualCity) return -1;
+                    if (b.isActualCity) return 1;
+                    return a.distance - b.distance;
+                });
+
+                const suggestedCity = identifiedCity || closestCityInState || closestCity;
+                const suggestedDistance = identifiedCity ? 0 : (closestCityInState ? minDistanceInState : minDistance);
+                const cityState = identifiedCity ? identifiedState : (suggestedCity ? BRAZILIAN_CITIES[suggestedCity].state : '');
+
+                // Build message showing actual city first, then nearby options
+                let message = '';
+                
+                if (identifiedCity) {
+                    message = `✅ CIDADE IDENTIFICADA: ${identifiedCity} - ${identifiedState}\n\n`;
+                    message += `📍 Esta é a cidade onde você está localizado.\n\n`;
+                    
+                    if (nearbyCities.length > 1) {
+                        // Filter out the actual city from the list for display (it's already mentioned)
+                        const otherCities = nearbyCities.filter(c => !c.isActualCity).slice(0, 4);
+                        if (otherCities.length > 0) {
+                            const citiesList = otherCities.map(c => 
+                                `• ${c.city} (${c.distance.toFixed(1)}km de distância)`
+                            ).join('\n');
+                            message += `Cidades próximas na nossa lista:\n${citiesList}\n\n`;
+                        }
+                    }
+                    
+                    message += `Deseja usar "${identifiedCity}" (sua cidade atual)?\n\n`;
+                    message += `• SIM = Usar ${identifiedCity}\n`;
+                    message += `• NÃO = Escolher uma cidade próxima da lista`;
                 } else {
-                    alert(`Cidade mais próxima: ${closestCity} (${minDistance.toFixed(1)}km de distância). Se não estiver correto, selecione sua cidade manualmente.`);
-                    if (closestCity) {
-                        const cityState = BRAZILIAN_CITIES[closestCity].state;
-                        setActiveFilters(prev => ({ ...prev, city: closestCity, state: cityState, neighborhood: '' }));
-                        setIsLocationActive(true);
-                        setUserLocation({ lat: latitude, lng: longitude });
+                    message = `Não foi possível identificar sua cidade automaticamente.\n\n`;
+                    
+                    if (nearbyCities.length > 0) {
+                        const citiesList = nearbyCities.slice(0, 5).map(c => 
+                            `• ${c.city} (${c.distance.toFixed(1)}km)`
+                        ).join('\n');
+                        message += `Cidades próximas encontradas:\n${citiesList}\n\n`;
+                        message += `Por favor, selecione manualmente a cidade correta.`;
                     } else {
-                        setIsLocationActive(false);
-                        setUserLocation(null);
+                        message += 'Não foi possível encontrar nenhuma cidade próxima. Por favor, selecione sua cidade manualmente.';
                     }
                 }
+                
+                // If we have the actual city, try to use it directly (even if not in list)
+                if (identifiedCity && identifiedState) {
+                    // Allow using the actual city even if not in our supported list
+                    // The filter will work with the city name and state
+                    const useActualCity = confirm(message);
+                    
+                    if (useActualCity) {
+                        // Show city in the input field, but filter by distance only
+                        setIsLocationActive(true);
+                        setUserLocation({ lat: latitude, lng: longitude });
+                        setCitySearch(identifiedCity); // Show city in the input field
+                        // Don't set city in activeFilters - we filter by distance, not city
+                        setActiveFilters(prev => ({ ...prev, city: '', state: '', neighborhood: '' }));
+                        console.log(`Geolocation active: showing people within ${maxDistance}km of ${identifiedCity}`);
+                        setIsLocating(false);
+                        return;
+                    } else {
+                        // User wants to choose a nearby city instead
+                        // Show list again with just nearby cities
+                        const nearbyOnly = nearbyCities.filter(c => !c.isActualCity).slice(0, 5);
+                        if (nearbyOnly.length > 0) {
+                            const citiesList = nearbyOnly.map((c, idx) => 
+                                `${idx + 1}. ${c.city} - ${c.state} (${c.distance.toFixed(1)}km)`
+                            ).join('\n');
+                            const choice = prompt(`Escolha uma das cidades próximas:\n\n${citiesList}\n\nDigite o número da cidade (1-${nearbyOnly.length}):`);
+                            const choiceNum = parseInt(choice || '0');
+                            
+                            if (choiceNum > 0 && choiceNum <= nearbyOnly.length) {
+                                const selectedCity = nearbyOnly[choiceNum - 1];
+                                // Show city in the input field, but filter by distance only
+                                setIsLocationActive(true);
+                                setUserLocation({ lat: latitude, lng: longitude });
+                                setCitySearch(selectedCity.city); // Show city in the input field
+                                // Don't set city in activeFilters - we filter by distance, not city
+                                setActiveFilters(prev => ({ ...prev, city: '', state: '', neighborhood: '' }));
+                                console.log(`Geolocation active: showing people within ${maxDistance}km (near ${selectedCity.city})`);
+                                setIsLocating(false);
+                                return;
+                            }
+                        }
+                    }
+                } else {
+                    // No identified city, just show nearby options
+                    const confirmed = suggestedCity ? confirm(message) : false;
+                    
+                    if (confirmed && suggestedCity) {
+                        // Show city in the input field, but filter by distance only
+                        setIsLocationActive(true);
+                        setUserLocation({ lat: latitude, lng: longitude });
+                        setCitySearch(suggestedCity); // Show city in the input field
+                        // Don't set city in activeFilters - we filter by distance, not city
+                        setActiveFilters(prev => ({ ...prev, city: '', state: '', neighborhood: '' }));
+                        console.log(`Geolocation active: showing people within ${maxDistance}km (near ${suggestedCity})`);
+                    }
+                }
+                
+                setIsLocating(false);
                 setIsLocating(false);
             },
             (error) => {
@@ -194,40 +435,38 @@ export default function Home() {
     } = useInfiniteQuery({
         queryKey: ['profiles', 'advertiser'],
         queryFn: async ({ pageParam = 1 }) => {
-            // PocketBase uses 1-based index
             try {
                 // Fetch profiles with pagination
                 // Filter by role='advertiser'
-                const result = await pb.collection('profiles').getList(pageParam, 12, {
-                    filter: 'role = "advertiser"',
-                    sort: '-created', // Newest first
-                });
+                const profiles = await directus.request(readItems('profiles', {
+                    sort: ['-date_created'],
+                    limit: 12,
+                    page: pageParam
+                }));
 
-                if (result.items.length === 0 && pageParam === 1) {
-                    // If empty on first page, trigger fallback logic
+                // const totalItems = 100; // Directus doesn't return total in basic readItems unless customized or aggregated. Assuming infinite scroll, we can try to fetch until empty.
+                // Assuming standard directus behaviour, if we get fewer items than limit, it's the last page.
+
+                if (profiles.length === 0 && pageParam === 1) {
                     throw new Error("No data in DB, using mocks");
                 }
 
                 // Fetch Media for these profiles
-                // Since we can't easily reverse expand in one go without relation field,
-                // we fetch all media for these profile IDs.
-                const profileIds = result.items.map(p => p.id).filter(Boolean);
+                const profileIds = profiles.map((p: any) => p.id).filter(Boolean);
                 const mediaMap: Record<string, any[]> = {};
 
                 if (profileIds.length > 0) {
-                    // Create filter: profile_id = "id1" || profile_id = "id2" ...
-                    const mediaFilter = profileIds.map(id => `profile_id = "${id}"`).join(' || ');
                     try {
-                        const mediaList = await pb.collection('media').getFullList({
-                            filter: mediaFilter,
-                        });
+                        const mediaList = await directus.request(readItems('media', {
+                            filter: { profile_id: { _in: profileIds } }
+                        }));
 
                         // Group by profile_id
                         mediaList.forEach((m: any) => {
                             if (!mediaMap[m.profile_id]) mediaMap[m.profile_id] = [];
                             mediaMap[m.profile_id].push({
                                 type: m.type || 'image',
-                                url: m.url || pb.files.getUrl(m, m.file || 'file')
+                                url: `${import.meta.env.VITE_DIRECTUS_URL}/assets/${m.file}`
                             });
                         });
                     } catch (e) {
@@ -236,15 +475,41 @@ export default function Home() {
                 }
 
                 // Attach media to profiles
-                const profilesWithMedia = result.items.map(p => ({
-                    ...p,
-                    media: mediaMap[p.id] || []
-                }));
+                const profilesWithMedia = profiles.map((p: any) => {
+                    let media = mediaMap[p.id] || [];
+
+                    // Also merge with 'photos' field if available (New system)
+                    if (p.photos && Array.isArray(p.photos)) {
+                        const photoUrls = p.photos.map((url: string) => ({
+                            type: 'image',
+                            url: url.startsWith('http') ? url : `${import.meta.env.VITE_DIRECTUS_URL}/assets/${url}`
+                        }));
+                        // Add to beginning to prioritize new system
+                        media = [...photoUrls, ...media];
+                    } else if (typeof p.photos === 'string') {
+                        try {
+                            const parsed = JSON.parse(p.photos);
+                            if (Array.isArray(parsed)) {
+                                const photoUrls = parsed.map((url: string) => ({
+                                    type: 'image',
+                                    url: url.startsWith('http') ? url : `${import.meta.env.VITE_DIRECTUS_URL}/assets/${url}`
+                                }));
+                                media = [...photoUrls, ...media];
+                            }
+                        } catch (e) {
+                            // Ignore parse error
+                        }
+                    }
+
+                    return { ...p, media };
+                });
+
+                const hasMore = profiles.length === 12; // Approximation
 
                 return {
                     items: profilesWithMedia,
-                    page: result.page,
-                    totalPages: result.totalPages
+                    page: pageParam,
+                    totalPages: hasMore ? pageParam + 1 : pageParam // Just to keep React Query happy with basic logic
                 };
 
             } catch (err: any) {
@@ -252,15 +517,12 @@ export default function Home() {
                 const isPlaceholderError = err?.message?.includes('Failed to fetch') ||
                     err?.code === 'ERR_NAME_NOT_RESOLVED';
                 if (!isPlaceholderError && err.message !== "No data in DB, using mocks") {
-                    // log real errors
                     console.log("Fetching error, using MOCK_PROFILES", err);
                 }
 
                 // FALLBACK: Simulate paginated mock data
                 await new Promise(r => setTimeout(r, 800));
 
-                // Adjust 0-based pageParam from react-query logic if needed, but here we treat pageParam as 1-based
-                // Mocks usually just allow unlimited or fixed set.
                 if (pageParam > 5) return { items: [], page: pageParam, totalPages: 5 };
 
                 // Return mocks with slightly randomized IDs for React keys
@@ -277,14 +539,14 @@ export default function Home() {
             }
         },
         initialPageParam: 1,
-        getNextPageParam: (lastPage) => {
-            if (!lastPage || lastPage.page >= lastPage.totalPages) return undefined;
+        getNextPageParam: (lastPage: any) => {
+            if (!lastPage || lastPage.items.length < 12) return undefined; // Stop if last page wasn't full
             return lastPage.page + 1;
         },
         staleTime: 1000 * 60 * 5,
     });
 
-    const profiles = useMemo(() => data ? data.pages.flatMap(p => p.items) : [], [data]);
+    const profiles = useMemo(() => data ? data.pages.flatMap((p: any) => p.items) : [], [data]);
 
     // Apply Advanced Filters locally (unchanged logic mostly)
     const filteredProfiles = useMemo(() => {
@@ -299,7 +561,7 @@ export default function Home() {
             const lowerTerm = activeFilters.keyword.toLowerCase();
             result = result.filter(p => {
                 const name = p.display_name?.toLowerCase() || '';
-                const desc = p.bio?.toLowerCase() || ''; // Use bio instead of description if mapped
+                const desc = p.bio?.toLowerCase() || '';
                 const services = p.services?.join(' ').toLowerCase() || '';
                 return name.includes(lowerTerm) || desc.includes(lowerTerm) || services.includes(lowerTerm);
             });
@@ -311,31 +573,35 @@ export default function Home() {
         }
 
         // 1. Location
-        if (activeFilters.state) {
-            const normalizedState = normalizeString(activeFilters.state);
-            result = result.filter(p => {
-                if (isOnlineService(p)) return true;
-                const profileState = normalizeString((p as any).state || '');
-                return profileState === normalizedState;
-            });
-        }
-        if (activeFilters.city) {
-            const normalizedCity = normalizeString(activeFilters.city);
-            result = result.filter(p => {
-                if (isOnlineService(p)) return true;
-                const profileCity = normalizeString((p as any).city || '');
-                return profileCity === normalizedCity || profileCity.includes(normalizedCity) || normalizedCity.includes(profileCity);
-            });
-        }
-        if (activeFilters.neighborhood) {
-            const normalizedNeighborhood = normalizeString(activeFilters.neighborhood);
-            result = result.filter(p => {
-                if (isOnlineService(p)) return true;
-                const profileNeighborhood = normalizeString((p as any).neighborhood || '');
-                return profileNeighborhood === normalizedNeighborhood ||
-                    profileNeighborhood.includes(normalizedNeighborhood) ||
-                    normalizedNeighborhood.includes(profileNeighborhood);
-            });
+        // IMPORTANTE: Se geolocalização está ativa, NÃO filtrar por cidade/estado
+        // Apenas usar distância para mostrar pessoas próximas
+        if (!isLocationActive) {
+            if (activeFilters.state) {
+                const normalizedState = normalizeString(activeFilters.state);
+                result = result.filter(p => {
+                    if (isOnlineService(p)) return true;
+                    const profileState = normalizeString((p as any).state || '');
+                    return profileState === normalizedState;
+                });
+            }
+            if (activeFilters.city) {
+                const normalizedCity = normalizeString(activeFilters.city);
+                result = result.filter(p => {
+                    if (isOnlineService(p)) return true;
+                    const profileCity = normalizeString((p as any).city || '');
+                    return profileCity === normalizedCity || profileCity.includes(normalizedCity) || normalizedCity.includes(profileCity);
+                });
+            }
+            if (activeFilters.neighborhood) {
+                const normalizedNeighborhood = normalizeString(activeFilters.neighborhood);
+                result = result.filter(p => {
+                    if (isOnlineService(p)) return true;
+                    const profileNeighborhood = normalizeString((p as any).neighborhood || '');
+                    return profileNeighborhood === normalizedNeighborhood ||
+                        profileNeighborhood.includes(normalizedNeighborhood) ||
+                        normalizedNeighborhood.includes(profileNeighborhood);
+                });
+            }
         }
 
         // 1.5 Gender
@@ -458,8 +724,8 @@ export default function Home() {
         const hoodsSet = new Set<string>();
 
         profiles
-            .filter(p => p.neighborhood && normalizeString(p.neighborhood).includes(normalizedSearch))
-            .forEach(p => {
+            .filter((p: any) => p.neighborhood && normalizeString(p.neighborhood).includes(normalizedSearch))
+            .forEach((p: any) => {
                 const key = `${p.neighborhood}|||${p.city}|||${p.state}`;
                 hoodsSet.add(key);
             });
@@ -796,15 +1062,12 @@ export default function Home() {
 
                                             <div className="absolute bottom-0 left-0 right-0 p-3 transform translate-y-2 group-hover:translate-y-0 transition-transform duration-300 text-white">
                                                 <div className="flex items-center gap-1 mb-0.5">
-                                                    <h3 className="font-bold text-sm leading-none truncate pr-4">{profile.display_name}</h3>
+                                                    <h3 className="font-bold text-sm leading-none truncate pr-4">{sanitizeInput(profile.display_name || '')}</h3>
                                                     {profile.verified && <Check className="w-3 h-3 text-blue-400" />}
                                                 </div>
-                                                <div className="flex items-center justify-between text-xs text-white/90">
-                                                    <div className="flex items-center gap-0.5 truncate max-w-[60%]">
-                                                        <MapPin className="w-3 h-3 text-primary flex-shrink-0" />
-                                                        <span className="truncate">{profile.city}</span>
-                                                    </div>
-                                                    <span className="font-bold whitespace-nowrap">R$ {profile.price}</span>
+                                                <div className="flex items-center justify-between text-[10px] opacity-90">
+                                                    <span>{sanitizeInput(profile.city || '')}</span>
+                                                    {profile.price && <span className="font-bold">R$ {profile.price}</span>}
                                                 </div>
                                             </div>
                                         </div>
@@ -813,11 +1076,7 @@ export default function Home() {
                             })}
                         </div>
                     )}
-                    {isFetchingNextPage && (
-                        <div className="mt-8 flex justify-center">
-                            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-                        </div>
-                    )}
+
                     <div ref={observerTarget} className="h-10 w-full" />
                 </main>
             </div>

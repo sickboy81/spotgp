@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Users, TrendingUp, AlertCircle, Eye, DollarSign, Calendar, Loader2, Gift, Power, Settings } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { pb } from '@/lib/pocketbase';
+import { directus } from '@/lib/directus';
+import { readItems, aggregate } from '@directus/sdk';
 import { getReports } from '@/lib/api/reports';
 import { isFreeModeEnabled, setFreeMode } from '@/lib/utils/free-mode';
 import { cn } from '@/lib/utils';
@@ -60,22 +61,26 @@ export default function AdminStats() {
                 const activities: Activity[] = [];
 
                 // Recent users
-                const recentUsersResult = await pb.collection('profiles').getList(1, 5, {
-                    sort: '-created',
-                    fields: 'display_name,created'
-                });
-                const recentUsers = recentUsersResult.items;
+                try {
+                    const recentUsers = await directus.request(readItems('profiles', {
+                        sort: ['-date_created'],
+                        limit: 5,
+                        fields: ['display_name', 'date_created']
+                    }));
 
-                if (recentUsers) {
-                    recentUsers.forEach(user => {
-                        activities.push({
-                            type: 'user',
-                            action: 'Novo usuário registrado',
-                            user: user.display_name || 'Usuário sem nome',
-                            time: formatTimeAgo(user.created),
-                            timestamp: new Date(user.created).getTime(),
+                    if (recentUsers) {
+                        recentUsers.forEach((user: any) => {
+                            activities.push({
+                                type: 'user',
+                                action: 'Novo usuário registrado',
+                                user: user.display_name || 'Usuário sem nome',
+                                time: formatTimeAgo(user.date_created),
+                                timestamp: new Date(user.date_created).getTime(),
+                            });
                         });
-                    });
+                    }
+                } catch (e) {
+                    console.warn("Error fetching recent users", e);
                 }
 
                 // Recent reports
@@ -85,8 +90,8 @@ export default function AdminStats() {
                         type: 'report',
                         action: 'Report de conteúdo recebido',
                         user: report.reported_profile?.display_name || 'Perfil sem nome',
-                        time: formatTimeAgo(report.created),
-                        timestamp: new Date(report.created).getTime(),
+                        time: formatTimeAgo(report.date_created), // Refactored reports use date_created
+                        timestamp: new Date(report.date_created).getTime(),
                     });
                 });
 
@@ -104,54 +109,48 @@ export default function AdminStats() {
                 const dateFilter = getDateFilter();
                 const dateFilterStr = dateFilter?.toISOString();
 
+                // Helper to get count
+                const getCount = async (filter: any = {}) => {
+                    try {
+                        const result = await directus.request(aggregate('profiles', {
+                            aggregate: { count: '*' },
+                            query: { filter }
+                        }));
+                        return parseInt((result[0] as any).count) || 0;
+                    } catch (e) {
+                        console.warn("Error aggregation", e);
+                        return 0;
+                    }
+                };
+
                 // Total users
-                const totalUsersResult = await pb.collection('profiles').getList(1, 1, {
-                    fields: 'id'
-                });
-                const totalUsers = totalUsersResult.totalItems;
+                const totalUsers = await getCount();
 
                 // Active users (not banned)
-                const activeUsersResult = await pb.collection('profiles').getList(1, 1, {
-                    filter: 'is_banned = false',
-                    fields: 'id'
-                });
-                const activeUsers = activeUsersResult.totalItems;
+                const activeUsers = await getCount({ is_banned: { _eq: false } });
 
                 // New users in time range
-                let newUsersFilter = '';
+                let newUsers = 0;
                 if (dateFilterStr) {
-                    newUsersFilter = `created >= "${dateFilterStr}"`;
+                    newUsers = await getCount({ date_created: { _gte: dateFilterStr } });
+                } else {
+                    newUsers = await getCount();
                 }
-                const newUsersResult = await pb.collection('profiles').getList(1, 1, {
-                    filter: newUsersFilter,
-                    fields: 'id'
-                });
-                const newUsers = newUsersResult.totalItems;
 
                 // Banned users
-                const bannedUsersResult = await pb.collection('profiles').getList(1, 1, {
-                    filter: 'is_banned = true',
-                    fields: 'id'
-                });
-                const bannedUsers = bannedUsersResult.totalItems;
+                const bannedUsers = await getCount({ is_banned: { _eq: true } });
 
                 // Verified profiles
-                const verifiedProfilesResult = await pb.collection('profiles').getList(1, 1, {
-                    filter: 'verified = true',
-                    fields: 'id'
-                });
-                const verifiedProfiles = verifiedProfilesResult.totalItems;
+                const verifiedProfiles = await getCount({ verified: { _eq: true } });
 
                 // Pending reports
                 const reports = await getReports({ status: 'pending' });
                 const pendingReports = reports.length;
 
                 // Total views (if we had a views table, we'd sum it here)
-                // For now, we'll use a placeholder or calculate from profiles
                 const totalViews = 0; // TODO: Implement views tracking
 
                 // Total revenue (if we had a payments table, we'd sum it here)
-                // For now, we'll use a placeholder
                 const totalRevenue = 0; // TODO: Implement revenue tracking
 
                 setStats({
@@ -178,6 +177,7 @@ export default function AdminStats() {
     }, [timeRange]);
 
     const formatTimeAgo = (dateString: string) => {
+        if (!dateString) return '';
         const date = new Date(dateString);
         const now = new Date();
         const diffMs = now.getTime() - date.getTime();
@@ -431,4 +431,3 @@ export default function AdminStats() {
         </div>
     );
 }
-

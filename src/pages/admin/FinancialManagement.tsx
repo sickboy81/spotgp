@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { TrendingUp, TrendingDown, Calendar, Download, Search, Loader2, CreditCard } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { pb } from '@/lib/pocketbase';
+import { directus } from '@/lib/directus';
+import { readItems } from '@directus/sdk';
 
 interface Transaction {
     id: string;
@@ -13,12 +14,12 @@ interface Transaction {
     status: 'pending' | 'completed' | 'failed' | 'refunded';
     description: string;
     created_at: string;
+    date_created?: string;
     payment_method?: string;
-    expand?: {
-        user_id?: {
-            display_name?: string;
-            username?: string;
-        }
+    // user_id might be an object if expanded
+    user?: {
+        display_name?: string;
+        username?: string;
     }
 }
 
@@ -55,35 +56,42 @@ export default function FinancialManagement() {
         const loadTransactions = async () => {
             setLoading(true);
             try {
-                // Build filter string for PocketBase
-                const filters: string[] = [];
+                // Build filter object for Directus
+                const filter: any = {};
 
                 if (filterStatus !== 'all') {
-                    filters.push(`status = "${filterStatus}"`);
+                    filter.status = { _eq: filterStatus };
                 }
 
                 const dateFilter = getDateFilter();
                 if (dateFilter) {
-                    filters.push(`created >= "${dateFilter.toISOString()}"`);
+                    // Assuming standard Directus 'date_created'
+                    filter.date_created = { _gte: dateFilter.toISOString() };
                 }
 
-                const filterString = filters.length > 0 ? filters.join(' && ') : '';
+                // fetch items
+                const result = await directus.request(readItems('transactions', {
+                    sort: ['-date_created'],
+                    filter: filter,
+                    limit: 100,
+                    fields: [
+                        '*',
+                        'user_id.display_name',
+                        'user_id.username'
+                    ]
+                }));
 
-                // Attempt to fetch from 'transactions' collection
-                const result = await pb.collection('transactions').getList<Transaction>(1, 100, {
-                    sort: '-created',
-                    filter: filterString,
-                    expand: 'user_id',
-                });
-
-                const mappedTransactions = result.items.map(t => ({
+                const mappedTransactions = result.map((t: any) => ({
                     ...t,
-                    user_name: t.expand?.user_id?.display_name || t.expand?.user_id?.username || 'Unknown User'
+                    // Map Directus system fields if needed
+                    created_at: t.date_created,
+                    // Handle relation (user_id is expanded object)
+                    user_name: t.user_id?.display_name || t.user_id?.username || 'Unknown User'
                 }));
 
                 setTransactions(mappedTransactions);
             } catch (err) {
-                console.warn('Error loading transactions (collection might not exist):', err);
+                console.warn('Error loading transactions:', err);
                 setTransactions([]); // Fallback to empty
             } finally {
                 setLoading(false);
@@ -97,8 +105,8 @@ export default function FinancialManagement() {
         if (!searchTerm) return true;
         const lowerSearch = searchTerm.toLowerCase();
         return (
-            transaction.user_name?.toLowerCase().includes(lowerSearch) ||
-            transaction.description.toLowerCase().includes(lowerSearch) ||
+            (transaction.user_name?.toLowerCase() || '').includes(lowerSearch) ||
+            (transaction.description?.toLowerCase() || '').includes(lowerSearch) ||
             transaction.id.toLowerCase().includes(lowerSearch)
         );
     });
@@ -322,3 +330,7 @@ export default function FinancialManagement() {
         </div>
     );
 }
+
+
+
+
