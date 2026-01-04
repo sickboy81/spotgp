@@ -190,42 +190,6 @@ export async function reverseGeocode(latitude: number, longitude: number): Promi
             cityName = cityName.replace(/^(município de|cidade de|municipio de)\s+/i, '').trim();
         }
         
-        // Special handling for major cities where Nominatim might return neighborhoods/districts
-        // Check if we're in a major city area but got a neighborhood name instead
-        const majorCitiesMap: Record<string, { name: string; state: string; bounds: { latMin: number; latMax: number; lngMin: number; lngMax: number } }> = {
-            'RJ': {
-                name: 'Rio de Janeiro',
-                state: 'RJ',
-                bounds: { latMin: -23.1, latMax: -22.7, lngMin: -43.8, lngMax: -43.1 }
-            },
-            'SP': {
-                name: 'São Paulo',
-                state: 'SP',
-                bounds: { latMin: -23.8, latMax: -23.3, lngMin: -46.8, lngMax: -46.3 }
-            },
-            'MG': {
-                name: 'Belo Horizonte',
-                state: 'MG',
-                bounds: { latMin: -20.1, latMax: -19.8, lngMin: -44.1, lngMax: -43.8 }
-            }
-        };
-        
-        // If we have coordinates and state, check if we're in a major city area
-        if (latitude && longitude && normalizedState && majorCitiesMap[normalizedState]) {
-            const majorCity = majorCitiesMap[normalizedState];
-            const inBounds = latitude >= majorCity.bounds.latMin && 
-                           latitude <= majorCity.bounds.latMax &&
-                           longitude >= majorCity.bounds.lngMin && 
-                           longitude <= majorCity.bounds.lngMax;
-            
-            // If we're in the bounds of a major city but got a different city name (likely a neighborhood)
-            // OR if cityName is null/empty, use the major city
-            if (inBounds && (!cityName || cityName.toLowerCase() !== majorCity.name.toLowerCase())) {
-                console.log(`Detected location in ${majorCity.name} area, but got "${cityName || 'null'}". Using ${majorCity.name} instead.`);
-                cityName = majorCity.name;
-            }
-        }
-        
         const stateCode = address.state_code || address.state || null;
 
         // For Brazil, state_code might be in format like "SP" or "São Paulo"
@@ -263,6 +227,42 @@ export async function reverseGeocode(latitude: number, longitude: number): Promi
                 'Tocantins': 'TO',
             };
             normalizedState = stateMap[stateCode] || stateCode;
+        }
+        
+        // Special handling for major cities where Nominatim might return neighborhoods/districts
+        // Check if we're in a major city area but got a neighborhood name instead
+        const majorCitiesMap: Record<string, { name: string; state: string; bounds: { latMin: number; latMax: number; lngMin: number; lngMax: number } }> = {
+            'RJ': {
+                name: 'Rio de Janeiro',
+                state: 'RJ',
+                bounds: { latMin: -23.1, latMax: -22.7, lngMin: -43.8, lngMax: -43.1 }
+            },
+            'SP': {
+                name: 'São Paulo',
+                state: 'SP',
+                bounds: { latMin: -23.8, latMax: -23.3, lngMin: -46.8, lngMax: -46.3 }
+            },
+            'MG': {
+                name: 'Belo Horizonte',
+                state: 'MG',
+                bounds: { latMin: -20.1, latMax: -19.8, lngMin: -44.1, lngMax: -43.8 }
+            }
+        };
+        
+        // If we have coordinates and state, check if we're in a major city area
+        if (latitude && longitude && normalizedState && majorCitiesMap[normalizedState]) {
+            const majorCity = majorCitiesMap[normalizedState];
+            const inBounds = latitude >= majorCity.bounds.latMin && 
+                           latitude <= majorCity.bounds.latMax &&
+                           longitude >= majorCity.bounds.lngMin && 
+                           longitude <= majorCity.bounds.lngMax;
+            
+            // If we're in the bounds of a major city but got a different city name (likely a neighborhood)
+            // OR if cityName is null/empty, use the major city
+            if (inBounds && (!cityName || cityName.toLowerCase() !== majorCity.name.toLowerCase())) {
+                console.log(`Detected location in ${majorCity.name} area, but got "${cityName || 'null'}". Using ${majorCity.name} instead.`);
+                cityName = majorCity.name;
+            }
         }
 
         if (cityName && normalizedState) {

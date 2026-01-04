@@ -287,7 +287,7 @@ export default function EditProfile() {
         }
 
         if (profile.category !== 'Online') {
-            const hasValidPrice = profile.prices && profile.prices.length > 0 && profile.prices.some(p => p.price > 0);
+            const hasValidPrice = profile.prices && profile.prices.length > 0 && profile.prices.some((p: { description: string; price: number }) => p.price > 0);
 
             if (!hasValidPrice && (!profile.price || profile.price <= 0)) {
                 setSaveStatus({ type: 'error', message: 'Informe pelo menos um valor na tabela de Cachês' });
@@ -373,7 +373,7 @@ export default function EditProfile() {
 
             // Set base price from first valid price in table if available
             if (profile.prices && profile.prices.length > 0) {
-                const validPrice = profile.prices.find(p => p.price > 0);
+                const validPrice = profile.prices.find((p: { description: string; price: number }) => p.price > 0);
                 if (validPrice) {
                     updatedProfile.price = validPrice.price;
                 }

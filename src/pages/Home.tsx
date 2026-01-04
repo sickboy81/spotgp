@@ -314,8 +314,8 @@ export default function Home() {
                 });
 
                 const suggestedCity = identifiedCity || closestCityInState || closestCity;
-                const suggestedDistance = identifiedCity ? 0 : (closestCityInState ? minDistanceInState : minDistance);
-                const cityState = identifiedCity ? identifiedState : (suggestedCity ? BRAZILIAN_CITIES[suggestedCity].state : '');
+                const _suggestedDistance = identifiedCity ? 0 : (closestCityInState ? minDistanceInState : minDistance);
+                const _cityState = identifiedCity ? identifiedState : (suggestedCity ? BRAZILIAN_CITIES[suggestedCity].state : '');
 
                 // Build message showing actual city first, then nearby options
                 let message = '';
