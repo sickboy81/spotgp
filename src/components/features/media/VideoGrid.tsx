@@ -21,7 +21,7 @@ export function VideoGrid({
     maxVideos = 3
 }: VideoGridProps) {
     const [compressing, setCompressing] = useState(false);
-    const [compressionProgress, setCompressionProgress] = useState(0);
+    const [, setCompressionProgress] = useState(0);
     const [compressionMessage, setCompressionMessage] = useState('');
 
     const handleRemove = (index: number) => {

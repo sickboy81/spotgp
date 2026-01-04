@@ -25,6 +25,7 @@ export function PhotoGrid({
 }: PhotoGridProps) {
     const [coverPhotoIndex, setCoverPhotoIndex] = useState(0);
     const [compressing, setCompressing] = useState(false);
+    const [compressionProgress, setCompressionProgress] = useState(0);
     const [compressionMessage, setCompressionMessage] = useState('');
     const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
     const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);

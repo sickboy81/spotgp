@@ -257,3 +257,4 @@ curl -I https://yourdomain.com
 **Causa:** CSP bloqueando imagens
 **Solução:** Adicionar origem ao `img-src` no CSP
 
+
