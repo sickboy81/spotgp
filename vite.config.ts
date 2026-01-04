@@ -44,4 +44,9 @@ export default defineConfig({
   optimizeDeps: {
     exclude: ['@ffmpeg/ffmpeg', '@ffmpeg/util'],
   },
+  preview: {
+    host: true,
+    port: 3000,
+    allowedHosts: ['spotgp.com', 'localhost'],
+  },
 })
