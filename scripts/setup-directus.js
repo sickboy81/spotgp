@@ -149,6 +149,29 @@ async function main() {
                     { field: 'user_id', type: 'string' },
                     { field: 'profile_id', type: 'string' },
                 ]
+            },
+            {
+                collection: 'plans',
+                meta: { icon: 'workspace_premium', note: 'Subscription plans' },
+                fields: [
+                    { field: 'name', type: 'string', meta: { interface: 'input' } },
+                    { field: 'price', type: 'decimal', meta: { interface: 'input' } }, // Use decimal/float
+                    { field: 'duration_days', type: 'integer', meta: { interface: 'input' } },
+                    { field: 'description', type: 'text', meta: { interface: 'textarea' } },
+                    { field: 'is_active', type: 'boolean', schema: { default_value: true } },
+                ]
+            },
+            {
+                collection: 'subscriptions',
+                meta: { icon: 'card_membership', note: 'User subscriptions' },
+                fields: [
+                    { field: 'user_id', type: 'string', meta: { interface: 'input' } },
+                    { field: 'plan_id', type: 'string', meta: { interface: 'input' } }, // FK to plans
+                    { field: 'start_date', type: 'dateTime', meta: { interface: 'datetime' } },
+                    { field: 'end_date', type: 'dateTime', meta: { interface: 'datetime' } },
+                    { field: 'status', type: 'string', meta: { interface: 'select-dropdown', options: { choices: [{ text: 'Active', value: 'active' }, { text: 'Expired', value: 'expired' }, { text: 'Canceled', value: 'canceled' }] } } },
+                    { field: 'amount_paid', type: 'decimal', meta: { interface: 'input' } },
+                ]
             }
         ];
 
@@ -187,7 +210,7 @@ async function main() {
     try {
         console.log('\nConfiguring Public Permissions...');
 
-        const publicCollections = ['profiles', 'media', 'ads', 'conversations', 'messages']; // Add relevant public read collections
+        const publicCollections = ['profiles', 'media', 'ads', 'conversations', 'messages', 'plans']; // Add relevant public read collections
         // For public read:
         for (const col of publicCollections) {
             try {

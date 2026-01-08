@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils';
 import { getMaintenanceMode, setMaintenanceMode } from '@/lib/utils/maintenance';
 import { isFreeModeEnabled, setFreeMode } from '@/lib/utils/free-mode';
 import { directus } from '@/lib/directus';
-import { readItems, updateItem, createItem } from '@directus/sdk';
+import { readSingleton, updateSingleton } from '@directus/sdk';
 
 interface SystemSettingsData {
     id?: string;
@@ -27,7 +27,7 @@ interface SystemSettingsData {
 export default function SystemSettings() {
     const [saving, setSaving] = useState(false);
     const [loading, setLoading] = useState(true);
-    const [settingsId, setSettingsId] = useState<string | null>(null);
+
     const [saveStatus, setSaveStatus] = useState<{ type: 'success' | 'error' | null; message: string }>({
         type: null,
         message: ''
@@ -56,25 +56,21 @@ export default function SystemSettings() {
         maxImageSizeMB: 5,
     });
 
-    // Load settings from Directus
+    // Load system settings
     useEffect(() => {
         const loadSettings = async () => {
             setLoading(true);
             try {
-                // Try to get the first record from system_settings
-                const records = await directus.request(readItems('system_settings', {
-                    limit: 1
-                }));
+                // Singleton request
+                const record = await directus.request(readSingleton('system_settings')) as SystemSettingsData;
 
-                if (records.length > 0) {
-                    const record = records[0] as SystemSettingsData;
-                    setSettingsId(record.id!);
+                if (record) {
                     setSettings({
                         siteName: record.site_name || 'acompanhantesAGORA',
                         siteMaintenance: record.maintenance_mode || false,
                         maintenanceMessage: record.maintenance_message || '',
                         requireEmailVerification: record.require_email_verification || false,
-                        allowNewRegistrations: record.allow_registrations !== false, // default true
+                        allowNewRegistrations: record.allow_registrations !== false,
                         siteFreeMode: record.free_mode || false,
                         minimumAge: record.minimum_age || 18,
                         maxImagesPerProfile: record.max_images_per_profile || 10,
@@ -88,20 +84,9 @@ export default function SystemSettings() {
                     // Sync local utils
                     setMaintenanceMode(record.maintenance_mode || false, record.maintenance_message || '');
                     setFreeMode(record.free_mode || false);
-                } else {
-                    // Fallback to local storage if no DB record found
-                    const localMaint = getMaintenanceMode();
-                    const localFree = isFreeModeEnabled();
-                    setSettings(prev => ({
-                        ...prev,
-                        siteMaintenance: localMaint.enabled,
-                        maintenanceMessage: localMaint.message || '',
-                        siteFreeMode: localFree
-                    }));
                 }
             } catch (err) {
                 console.warn('Could not load settings from Directus, using defaults/local storage:', err);
-                // Fallback
                 const localMaint = getMaintenanceMode();
                 const localFree = isFreeModeEnabled();
                 setSettings(prev => ({
@@ -123,7 +108,6 @@ export default function SystemSettings() {
         setSaveStatus({ type: null, message: '' });
 
         try {
-            // Update local utils immediately for responsive UI
             setMaintenanceMode(settings.siteMaintenance, settings.maintenanceMessage);
             setFreeMode(settings.siteFreeMode);
 
@@ -143,13 +127,8 @@ export default function SystemSettings() {
                 max_image_size_mb: settings.maxImageSizeMB,
             };
 
-            if (settingsId) {
-                await directus.request(updateItem('system_settings', settingsId, data));
-            } else {
-                // Create if doesn't exist
-                const record = await directus.request(createItem('system_settings', data));
-                setSettingsId(record.id as string);
-            }
+            // Singleton update (no ID required)
+            await directus.request(updateSingleton('system_settings', data));
 
             setSaveStatus({
                 type: 'success',

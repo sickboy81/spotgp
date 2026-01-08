@@ -7,6 +7,11 @@ import { logger } from '../utils/logger';
 export interface ProfileData {
     id?: string;
     // ... (other fields remain the same, ensuring we support keys)
+    accepts_calls?: boolean;
+    accepts_whatsapp?: boolean;
+    accepts_telegram?: boolean;
+    payment_methods?: string[];
+    service_neighborhoods?: string[];
     [key: string]: any;
 }
 

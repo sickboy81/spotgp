@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
 import { directus } from '@/lib/directus';
 import { readItems, readItem } from '@directus/sdk';
-import { Play, MapPin, Check, Instagram, Send } from 'lucide-react';
+import { Play, MapPin, Check, Instagram, Send, Twitter, Phone, Share2, Heart, Sparkles, Award, Monitor, Gamepad2, Users } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
@@ -16,6 +16,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { SEOHead } from '@/components/features/seo/SEOHead';
 import { ProfileData } from '@/lib/api/profile';
 import { sanitizeInput } from '@/lib/utils/validation';
+import { cn } from '@/lib/utils';
 
 // Fix Leaflet Default Icon
 import icon from 'leaflet/dist/images/marker-icon.png';
@@ -87,6 +88,44 @@ export default function ProfileDetails() {
 
                 if (!profileData) return null; // Not found
 
+                // Helper to parse JSON fields safely
+                const parseJsonField = (field: any) => {
+                    if (Array.isArray(field)) return field;
+                    if (typeof field === 'string') {
+                        try {
+                            return JSON.parse(field);
+                        } catch (e) {
+                            return []; // or return [field] if it's a simple string?
+                        }
+                    }
+                    return [];
+                };
+
+                // Parse attributes
+                profileData.hairColor = parseJsonField(profileData.hairColor);
+                profileData.bodyType = parseJsonField(profileData.bodyType);
+                profileData.stature = parseJsonField(profileData.stature);
+                profileData.breastType = parseJsonField(profileData.breastType);
+                profileData.pubisType = parseJsonField(profileData.pubisType);
+
+                // Aggregate Services
+                const services: string[] = [
+                    ...(parseJsonField(profileData.escortServices) || []),
+                    ...(parseJsonField(profileData.massageTypes) || []),
+                    ...(parseJsonField(profileData.onlineServices) || [])
+                ];
+                // Remove duplicates
+                profileData.services = Array.from(new Set(services));
+
+                // Add special services and other missing lists if they exist
+                const extraServices: string[] = [
+                    ...(parseJsonField(profileData.escortSpecialServices) || []),
+                    ...(parseJsonField(profileData.otherServices) || [])
+                ];
+                if (extraServices.length > 0) {
+                    profileData.services = Array.from(new Set([...profileData.services, ...extraServices]));
+                }
+
                 // Fetch Media associated with this profile
                 let mediaList: any[] = [];
                 try {
@@ -154,15 +193,21 @@ export default function ProfileDetails() {
 
     // Geocoding Effect (Updated)
     useEffect(() => {
-        if (profile?.city) {
-            // Check if we have lat/lng in profile first (future proofing)
-            if (profile.map_lat && profile.map_lng) {
-                setCoords([Number(profile.map_lat), Number(profile.map_lng)]);
-                return;
-            }
+        // Priority 1: Explicit Coordinates from Profile (Saved from Map or Geocoded on Save)
+        if (profile?.latitude && profile?.longitude) {
+            setCoords([Number(profile.latitude), Number(profile.longitude)]);
+            return;
+        }
 
-            // Fallback to Nominatim
-            fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(profile.city)}`)
+        // Priority 2: Legacy map fields
+        if (profile?.map_lat && profile?.map_lng) {
+            setCoords([Number(profile.map_lat), Number(profile.map_lng)]);
+            return;
+        }
+
+        // Priority 3: Geocode City
+        if (profile?.city) {
+            fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(profile.city + ', ' + (profile.state || 'Brasil'))}`)
                 .then(res => res.json())
                 .then(data => {
                     if (data && data.length > 0) {
@@ -177,7 +222,7 @@ export default function ProfileDetails() {
                     setCoords([-23.5505, -46.6333]);
                 });
         }
-    }, [profile?.city, profile?.map_lat, profile?.map_lng]);
+    }, [profile?.city, profile?.state, profile?.latitude, profile?.longitude, profile?.map_lat, profile?.map_lng]);
 
     // Record profile view when profile loads
     useEffect(() => {
@@ -214,6 +259,27 @@ export default function ProfileDetails() {
         const prevIndex = (currentIndex - 1 + mediaList.length) % mediaList.length;
         setLightboxMedia(mediaList[prevIndex].url);
     }, [mediaList, lightboxMedia]);
+    // Share Handler
+    const handleShare = async () => {
+        const shareData = {
+            title: `${profile?.display_name || 'Perfil'} - SpotGP`,
+            text: `Confira o perfil de ${profile?.display_name || 'acompanhante'} no SpotGP!`,
+            url: window.location.href,
+        };
+
+        if (navigator.share) {
+            try {
+                await navigator.share(shareData);
+            } catch (error) {
+                console.log('Error sharing:', error);
+            }
+        } else {
+            // Fallback
+            navigator.clipboard.writeText(window.location.href);
+            // Optionally add a toast/alert here if we had a toast system ready
+            alert('Link copiado para a área de transferência!');
+        }
+    };
 
     // Helper functions
     const getWhatsAppLink = (phoneNumber: string | null | undefined, displayName: string | null | undefined): string | null => {
@@ -291,6 +357,14 @@ export default function ProfileDetails() {
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6" /></svg>
                         <span className="text-sm font-medium font-serif">Voltar</span>
                     </div>
+                </button>
+
+                {/* Mobile Share Button */}
+                <button
+                    onClick={handleShare}
+                    className="fixed top-4 md:hidden right-4 z-50 p-2 bg-black/60 backdrop-blur-md rounded-full text-white hover:bg-black/80 transition-colors shadow-lg border border-white/10"
+                >
+                    <Share2 className="w-5 h-5" />
                 </button>
 
                 {/* LIGHTBOX OVERLAY */}
@@ -456,13 +530,21 @@ export default function ProfileDetails() {
                                                 <MapPin className="w-5 h-5 fill-current" />
                                                 <span className="font-semibold">{sanitizeInput(profile.city || 'São Paulo')}</span>
                                             </div>
-                                            <span className="text-border">•</span>
+                                            {/* <span className="text-border">•</span>
                                             <span className="text-green-500 flex items-center gap-1.5 font-medium text-sm bg-green-500/10 px-3 py-1 rounded-full">
                                                 <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
                                                 Online Agora
-                                            </span>
+                                            </span> */}
                                         </div>
                                     </div>
+                                    {/* Desktop Share Button */}
+                                    <button
+                                        onClick={handleShare}
+                                        className="p-3 bg-secondary/50 hover:bg-secondary text-foreground rounded-full transition-all hover:scale-105"
+                                        title="Compartilhar Perfil"
+                                    >
+                                        <Share2 className="w-6 h-6" />
+                                    </button>
                                     <div className="text-center bg-gradient-to-br from-card to-background border border-border p-5 rounded-2xl shadow-lg transform rotate-2 hover:rotate-0 transition-transform duration-300">
                                         <span className="block text-5xl font-bold font-serif text-primary mb-1">{profile.age || 23}</span>
                                         <span className="text-xs uppercase tracking-widest text-muted-foreground font-semibold">Anos</span>
@@ -495,33 +577,234 @@ export default function ProfileDetails() {
                                     </div>
                                     <div className="bg-card/30 p-4 rounded-xl border border-border/30 hover:border-primary/30 transition-colors">
                                         <span className="block text-[10px] uppercase text-muted-foreground mb-1 tracking-wider">Cabelo</span>
-                                        <span className="font-serif text-xl text-foreground">{(profile.hairColor && profile.hairColor[0]) || 'Morena'}</span>
+                                        <span className="font-serif text-xl text-foreground">
+                                            {(Array.isArray(profile.hairColor) && profile.hairColor.length > 0 ? profile.hairColor.join(', ') : (profile.hairColor || 'Não informado'))}
+                                        </span>
                                     </div>
                                     <div className="bg-card/30 p-4 rounded-xl border border-border/30 hover:border-primary/30 transition-colors">
-                                        <span className="block text-[10px] uppercase text-muted-foreground mb-1 tracking-wider">Olhos</span>
-                                        <span className="font-serif text-xl text-foreground">Castanhos</span>
+                                        <span className="block text-[10px] uppercase text-muted-foreground mb-1 tracking-wider">Estatura</span>
+                                        <span className="font-serif text-xl text-foreground">
+                                            {(Array.isArray(profile.stature) && profile.stature.length > 0 ? profile.stature.join(', ') : (profile.stature || 'Não informado'))}
+                                        </span>
                                     </div>
                                     <div className="bg-card/30 p-4 rounded-xl border border-border/30 hover:border-primary/30 transition-colors">
                                         <span className="block text-[10px] uppercase text-muted-foreground mb-1 tracking-wider">Etnia</span>
-                                        <span className="font-serif text-xl text-foreground">{(profile.ethnicity && profile.ethnicity[0]) || 'Latina'}</span>
+                                        <span className="font-serif text-xl text-foreground">
+                                            {Array.isArray(profile.ethnicity) ? profile.ethnicity.join(', ') : (profile.ethnicity || 'Não informado')}
+                                        </span>
                                     </div>
                                     <div className="bg-card/30 p-4 rounded-xl border border-border/30 hover:border-primary/30 transition-colors">
                                         <span className="block text-[10px] uppercase text-muted-foreground mb-1 tracking-wider">Corpo</span>
-                                        <span className="font-serif text-xl text-foreground">{(profile.bodyType && profile.bodyType[0]) || 'Curvilínea'}</span>
+                                        <span className="font-serif text-xl text-foreground">
+                                            {(Array.isArray(profile.bodyType) && profile.bodyType.length > 0 ? profile.bodyType.join(', ') : (profile.bodyType || 'Não informado'))}
+                                        </span>
+                                    </div>
+                                    <div className="bg-card/30 p-4 rounded-xl border border-border/30 hover:border-primary/30 transition-colors">
+                                        <span className="block text-[10px] uppercase text-muted-foreground mb-1 tracking-wider">Seios</span>
+                                        <span className="font-serif text-xl text-foreground">
+                                            {(Array.isArray(profile.breastType) && profile.breastType.length > 0 ? profile.breastType.join(', ') : (profile.breastType || 'Não informado'))}
+                                        </span>
+                                    </div>
+                                    <div className="bg-card/30 p-4 rounded-xl border border-border/30 hover:border-primary/30 transition-colors">
+                                        <span className="block text-[10px] uppercase text-muted-foreground mb-1 tracking-wider">Púbis</span>
+                                        <span className="font-serif text-xl text-foreground">
+                                            {(Array.isArray(profile.pubisType) && profile.pubisType.length > 0 ? profile.pubisType.join(', ') : (profile.pubisType || 'Não informado'))}
+                                        </span>
                                     </div>
                                 </div>
                             </div>
 
-                            {/* Services Tags */}
-                            <div className="space-y-6">
-                                <h3 className="text-2xl font-serif font-bold text-foreground">Meus Serviços</h3>
-                                <div className="flex flex-wrap gap-3">
-                                    {(profile.services || ['Jantar', 'Viagens', 'Massagem', 'Namoradinha']).map((s: string) => (
-                                        <span key={s} className="px-5 py-2.5 rounded-xl bg-card hover:bg-primary text-foreground hover:text-white border border-border hover:border-primary transition-all cursor-default font-medium shadow-sm">
-                                            {s}
-                                        </span>
-                                    ))}
+                            {/* Neighborhoods (Locais que atendo) */}
+                            {profile.service_neighborhoods && profile.service_neighborhoods.length > 0 && (
+                                <div className="space-y-6 pt-4 border-t border-border/30">
+                                    <div className="flex items-center gap-2">
+                                        <MapPin className="w-5 h-5 text-primary" />
+                                        <h3 className="text-xl font-serif font-bold text-foreground">Locais que Atendo</h3>
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                        {profile.service_neighborhoods.map((neigh: string) => (
+                                            <span key={neigh} className="px-3 py-1 rounded-full bg-secondary/50 text-secondary-foreground text-sm border border-border">
+                                                {neigh}
+                                            </span>
+                                        ))}
+                                    </div>
                                 </div>
+                            )}
+
+                            {/* Category Specific Services */}
+                            <div className="space-y-8">
+
+                                {/* Generic 'Atende a' for all */}
+                                {profile.category !== 'Atendimento Online' && profile.serviceTo && profile.serviceTo.length > 0 && (
+                                    <div className="space-y-4">
+                                        <div className="flex items-center gap-2">
+                                            <Users className="w-5 h-5 text-primary" />
+                                            <h3 className="text-2xl font-serif font-bold text-foreground">Atende a</h3>
+                                        </div>
+                                        <div className="flex flex-wrap gap-3">
+                                            {profile.serviceTo.map((s: string) => (
+                                                <span key={s} className="px-5 py-2.5 rounded-xl bg-card text-foreground border border-border transition-all cursor-default font-medium shadow-sm">
+                                                    {s}
+                                                </span>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Acompanhante Services */}
+                                {(!profile.category || profile.category === 'Acompanhante') && (
+                                    <>
+                                        {profile.escortServices && profile.escortServices.length > 0 && (
+                                            <div className="space-y-4">
+                                                <div className="flex items-center gap-2">
+                                                    <Heart className="w-5 h-5 text-primary" />
+                                                    <h3 className="text-2xl font-serif font-bold text-foreground">Serviços</h3>
+                                                </div>
+                                                <div className="flex flex-wrap gap-3">
+                                                    {profile.escortServices.map((s: string) => (
+                                                        <span key={s} className="px-5 py-2.5 rounded-xl bg-card hover:bg-primary text-foreground hover:text-white border border-border hover:border-primary transition-all cursor-default font-medium shadow-sm">
+                                                            {s}
+                                                        </span>
+                                                    ))}
+                                                    {profile.oralSex && (
+                                                        <span className="px-5 py-2.5 rounded-xl bg-card hover:bg-primary text-foreground hover:text-white border border-border hover:border-primary transition-all cursor-default font-bold shadow-sm">
+                                                            {profile.oralSex}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )}
+                                        {profile.escortSpecialServices && profile.escortSpecialServices.length > 0 && (
+                                            <div className="space-y-4">
+                                                <div className="flex items-center gap-2">
+                                                    <Sparkles className="w-5 h-5 text-primary" />
+                                                    <h3 className="text-2xl font-serif font-bold text-foreground">Serviços Especiais</h3>
+                                                </div>
+                                                <div className="flex flex-wrap gap-3">
+                                                    {profile.escortSpecialServices.map((s: string) => (
+                                                        <span key={s} className="px-5 py-2.5 rounded-xl bg-card hover:bg-primary text-foreground hover:text-white border border-border hover:border-primary transition-all cursor-default font-medium shadow-sm">
+                                                            {s}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </>
+                                )}
+
+                                {/* Massagista Services */}
+                                {profile.category === 'Massagista' && (
+                                    <>
+                                        {/* Certificate Badge */}
+                                        {profile.certified_masseuse && (
+                                            <div className="inline-flex items-center gap-2 px-4 py-2 bg-green-500/10 text-green-500 rounded-full border border-green-500/20 mb-4">
+                                                <Award className="w-4 h-4" />
+                                                <span className="font-bold text-sm">Massagista Certificada</span>
+                                            </div>
+                                        )}
+
+                                        {profile.massageTypes && profile.massageTypes.length > 0 && (
+                                            <div className="space-y-4">
+                                                <div className="flex items-center gap-2">
+                                                    <Award className="w-5 h-5 text-primary" />
+                                                    <h3 className="text-2xl font-serif font-bold text-foreground">Tipos de Massagem</h3>
+                                                </div>
+                                                <div className="flex flex-wrap gap-3">
+                                                    {profile.massageTypes.map((s: string) => (
+                                                        <span key={s} className="px-5 py-2.5 rounded-xl bg-card hover:bg-primary text-foreground hover:text-white border border-border hover:border-primary transition-all cursor-default font-medium shadow-sm">
+                                                            {s}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {profile.happyEnding && profile.happyEnding.length > 0 && (
+                                            <div className="space-y-4">
+                                                <div className="flex items-center gap-2">
+                                                    <Heart className="w-5 h-5 text-primary" />
+                                                    <h3 className="text-2xl font-serif font-bold text-foreground">Final Feliz</h3>
+                                                </div>
+                                                <div className="flex flex-wrap gap-3">
+                                                    {profile.happyEnding.map((s: string) => (
+                                                        <span key={s} className="px-5 py-2.5 rounded-xl bg-card hover:bg-primary text-foreground hover:text-white border border-border hover:border-primary transition-all cursor-default font-medium shadow-sm">
+                                                            {s}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {profile.otherServices && profile.otherServices.length > 0 && (
+                                            <div className="space-y-4">
+                                                <div className="flex items-center gap-2">
+                                                    <Sparkles className="w-5 h-5 text-primary" />
+                                                    <h3 className="text-2xl font-serif font-bold text-foreground">Outros Serviços</h3>
+                                                </div>
+                                                <div className="flex flex-wrap gap-3">
+                                                    {profile.otherServices.map((s: string) => (
+                                                        <span key={s} className="px-5 py-2.5 rounded-xl bg-card hover:bg-primary text-foreground hover:text-white border border-border hover:border-primary transition-all cursor-default font-medium shadow-sm">
+                                                            {s}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </>
+                                )}
+
+                                {/* Online Services */}
+                                {profile.category === 'Atendimento Online' && (
+                                    <>
+                                        {profile.onlineServices && profile.onlineServices.length > 0 && (
+                                            <div className="space-y-4">
+                                                <div className="flex items-center gap-2">
+                                                    <Monitor className="w-5 h-5 text-primary" />
+                                                    <h3 className="text-2xl font-serif font-bold text-foreground">Serviços Online</h3>
+                                                </div>
+                                                <div className="flex flex-wrap gap-3">
+                                                    {profile.onlineServices.map((s: string) => (
+                                                        <span key={s} className="px-5 py-2.5 rounded-xl bg-card hover:bg-primary text-foreground hover:text-white border border-border hover:border-primary transition-all cursor-default font-medium shadow-sm">
+                                                            {s}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {profile.virtualFantasies && profile.virtualFantasies.length > 0 && (
+                                            <div className="space-y-4">
+                                                <div className="flex items-center gap-2">
+                                                    <Gamepad2 className="w-5 h-5 text-primary" />
+                                                    <h3 className="text-2xl font-serif font-bold text-foreground">Fantasias Virtuais</h3>
+                                                </div>
+                                                <div className="flex flex-wrap gap-3">
+                                                    {profile.virtualFantasies.map((s: string) => (
+                                                        <span key={s} className="px-5 py-2.5 rounded-xl bg-card hover:bg-primary text-foreground hover:text-white border border-border hover:border-primary transition-all cursor-default font-medium shadow-sm">
+                                                            {s}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {profile.onlineServiceTo && profile.onlineServiceTo.length > 0 && (
+                                            <div className="space-y-4">
+                                                <div className="flex items-center gap-2">
+                                                    <Users className="w-5 h-5 text-primary" />
+                                                    <h3 className="text-2xl font-serif font-bold text-foreground">Atende a</h3>
+                                                </div>
+                                                <div className="flex flex-wrap gap-3">
+                                                    {profile.onlineServiceTo.map((s: string) => (
+                                                        <span key={s} className="px-5 py-2.5 rounded-xl bg-card hover:bg-primary text-foreground hover:text-white border border-border hover:border-primary transition-all cursor-default font-medium shadow-sm">
+                                                            {s}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </>
+                                )}
                             </div>
 
                             {/* Location & Map Section - LEAFLET */}
@@ -548,7 +831,7 @@ export default function ProfileDetails() {
                                     {coords ? (
                                         <MapContainer
                                             center={coords}
-                                            zoom={13}
+                                            zoom={15}
                                             style={{ height: '100%', width: '100%' }}
                                             scrollWheelZoom={false}
                                         >
@@ -575,54 +858,105 @@ export default function ProfileDetails() {
                                 </div>
                             </div>
 
-                            {/* Desktop Contact CTA */}
+                            {/* Payment Methods Section */}
+                            {profile.payment_methods && profile.payment_methods.length > 0 && (
+                                <div className="space-y-6 pt-8 border-t border-border/50">
+                                    <h3 className="text-2xl font-serif font-bold text-foreground">Formas de Pagamento</h3>
+                                    <div className="flex flex-wrap gap-3">
+                                        {profile.payment_methods.map((method: string) => (
+                                            <div key={method} className="flex items-center gap-2 px-4 py-2 bg-card border border-border rounded-lg shadow-sm">
+                                                <div className="w-2 h-2 bg-green-500 rounded-full" />
+                                                <span className="font-medium">{method}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Desktop Contact CTA - Side by Side WhatsApp & Telegram */}
                             <div className="hidden md:flex flex-col gap-4 pt-8">
-                                {getWhatsAppLink(profile.phone, profile.display_name) ? (
-                                    <a
-                                        href={getWhatsAppLink(profile.phone, profile.display_name) || '#'}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        onClick={() => {
-                                            if (profile?.id && !String(profile.id).startsWith('mock-')) {
-                                                recordProfileClick(String(profile.id), 'whatsapp', user?.id || null).catch(console.warn);
-                                            }
-                                        }}
-                                        className="w-full bg-[#25D366] hover:bg-[#20bd5a] text-white py-5 rounded-2xl font-bold text-xl transition-all shadow-xl hover:shadow-2xl transform hover:-translate-y-1 flex items-center justify-center gap-3"
-                                    >
-                                        <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z" /></svg>
-                                        WhatsApp
-                                    </a>
-                                ) : null}
-                                {/* Mobile Extra Buttons */}
-                                {profile.telegram && (
-                                    <a
-                                        href={`https://t.me/${profile.telegram}`}
-                                        onClick={() => {
-                                            if (profile?.id && !String(profile.id).startsWith('mock-')) {
-                                                recordProfileClick(String(profile.id), 'telegram', user?.id || null).catch(console.warn);
-                                            }
-                                        }}
-                                        className="bg-[#0088cc] text-white rounded-xl flex items-center justify-center"
-                                    >
-                                        <Send className="w-6 h-6" />
-                                    </a>
-                                )}
-                                {profile.instagram && (
-                                    <a
-                                        href={`https://instagram.com/${profile.instagram}`}
-                                        onClick={() => {
-                                            if (profile?.id && !String(profile.id).startsWith('mock-')) {
-                                                recordProfileClick(String(profile.id), 'instagram', user?.id || null).catch(console.warn);
-                                            }
-                                        }}
-                                        className="bg-gradient-to-tr from-[#f09433] via-[#dc2743] to-[#bc1888] text-white rounded-xl flex items-center justify-center"
-                                    >
-                                        <Instagram className="w-6 h-6" />
-                                    </a>
-                                )}
-                                <button className="bg-card border border-border text-foreground rounded-xl flex items-center justify-center font-bold">
-                                    Ligar
-                                </button>
+                                <div className={cn(
+                                    "grid gap-3",
+                                    (profile.accepts_whatsapp !== false && profile.accepts_telegram !== false && profile.telegram) ? "grid-cols-2" : "grid-cols-1"
+                                )}>
+                                    {/* WhatsApp Button */}
+                                    {getWhatsAppLink(profile.phone, profile.display_name) && profile.accepts_whatsapp !== false && (
+                                        <a
+                                            href={getWhatsAppLink(profile.phone, profile.display_name) || '#'}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            onClick={() => {
+                                                if (profile?.id && !String(profile.id).startsWith('mock-')) {
+                                                    recordProfileClick(String(profile.id), 'whatsapp', user?.id || null).catch(console.warn);
+                                                }
+                                            }}
+                                            className="w-full bg-[#25D366] hover:bg-[#20bd5a] text-white py-4 rounded-xl font-bold text-lg transition-all shadow-md hover:shadow-lg transform hover:-translate-y-0.5 flex items-center justify-center gap-2"
+                                        >
+                                            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z" /></svg>
+                                            WhatsApp
+                                        </a>
+                                    )}
+
+                                    {/* Telegram Button */}
+                                    {profile.telegram && profile.accepts_telegram !== false && (
+                                        <a
+                                            href={`https://t.me/${profile.telegram}`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            onClick={() => {
+                                                if (profile?.id && !String(profile.id).startsWith('mock-')) {
+                                                    recordProfileClick(String(profile.id), 'telegram', user?.id || null).catch(console.warn);
+                                                }
+                                            }}
+                                            className="bg-[#0088cc] text-white py-4 rounded-xl flex items-center justify-center gap-2 hover:bg-[#0077b5] transition-colors shadow-md hover:shadow-lg font-bold text-lg"
+                                        >
+                                            <Send className="w-5 h-5" />
+                                            Telegram
+                                        </a>
+                                    )}
+
+                                    {/* Instagram Button */}
+                                    {profile.instagram && (
+                                        <a
+                                            href={`https://instagram.com/${profile.instagram}`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            onClick={() => {
+                                                if (profile?.id && !String(profile.id).startsWith('mock-')) {
+                                                    recordProfileClick(String(profile.id), 'instagram', user?.id || null).catch(console.warn);
+                                                }
+                                            }}
+                                            className="bg-gradient-to-tr from-[#f09433] via-[#dc2743] to-[#bc1888] text-white py-3 rounded-xl flex items-center justify-center gap-2"
+                                        >
+                                            <Instagram className="w-5 h-5" />
+                                            Instagram
+                                        </a>
+                                    )}
+
+                                    {/* Twitter Button */}
+                                    {profile.twitter && (
+                                        <a
+                                            href={`https://twitter.com/${profile.twitter}`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="bg-black text-white py-3 rounded-xl flex items-center justify-center gap-2 hover:bg-gray-800 transition-colors"
+                                        >
+                                            <Twitter className="w-5 h-5" />
+                                            Twitter
+                                        </a>
+                                    )}
+
+                                    {/* Call Button */}
+                                    {profile.phone && profile.accepts_calls !== false && (
+                                        <a
+                                            href={`tel:${profile.phone}`}
+                                            className="bg-card border border-border text-foreground hover:bg-muted py-3 rounded-xl flex items-center justify-center font-bold gap-2 transition-colors"
+                                        >
+                                            <Phone className="w-5 h-5" />
+                                            Ligar
+                                        </a>
+                                    )}
+                                </div>
                             </div>
 
                             {/* Report Modal */}

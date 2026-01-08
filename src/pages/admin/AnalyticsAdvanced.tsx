@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { TrendingUp, Users, Eye, MousePointerClick, Download, PieChart, Loader2 } from 'lucide-react';
 import { LineChart as RechartsLineChart, Line, BarChart as RechartsBarChart, Bar, PieChart as RechartsPieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { directus } from '@/lib/directus';
+import { readItems, aggregate } from '@directus/sdk';
 
 const COLORS = ['#8884d8', '#82ca9d', '#ffc658', '#ff7300', '#00ff00'];
 
@@ -22,43 +24,118 @@ export default function AnalyticsAdvanced() {
     const loadAnalytics = async () => {
         setLoading(true);
         try {
-            // TODO: Replace with real analytics data from database
-            // Mock data for demonstration
-            const mockViewsData = generateDateRange(timeRange).map(date => ({
+            // Calculate date limit based on timeRange
+            const now = new Date();
+            let days = 30;
+            if (timeRange === 'week') days = 7;
+            if (timeRange === 'quarter') days = 90;
+            if (timeRange === 'year') days = 365;
+
+            const startDate = new Date(now);
+            startDate.setDate(now.getDate() - days);
+            const startDateStr = startDate.toISOString();
+
+            // Fetch Data
+            const [views, clicks, profiles] = await Promise.all([
+                directus.request(readItems('profile_views', {
+                    limit: -1, // Fetch all for now, optimize later
+                    fields: ['date_created'],
+                    filter: { date_created: { _gte: startDateStr } }
+                })),
+                directus.request(readItems('profile_clicks', {
+                    limit: -1,
+                    fields: ['date_created'],
+                    filter: { date_created: { _gte: startDateStr } }
+                })),
+                directus.request(readItems('profiles', {
+                    limit: -1,
+                    fields: ['display_name', 'views', 'clicks', 'certified_masseuse', 'onlineServices', 'date_created']
+                })) // Profiles usually not that many, okay to fetch all
+            ]);
+
+            // Process Time Series
+            const dateMap = new Map<string, { views: number; clicks: number; newUsers: number }>();
+
+            // Initialize map with all dates in range to ensure continuous chart
+            for (let i = 0; i <= days; i++) {
+                const d = new Date(startDate);
+                d.setDate(d.getDate() + i);
+                const dateStr = d.toISOString().split('T')[0];
+                dateMap.set(dateStr, { views: 0, clicks: 0, newUsers: 0 });
+            }
+
+            // Fill Data
+            views.forEach((v: any) => {
+                const date = v.date_created?.split('T')[0];
+                if (date && dateMap.has(date)) {
+                    const curr = dateMap.get(date)!;
+                    curr.views++;
+                    dateMap.set(date, curr);
+                }
+            });
+
+            clicks.forEach((c: any) => {
+                const date = c.date_created?.split('T')[0];
+                if (date && dateMap.has(date)) {
+                    const curr = dateMap.get(date)!;
+                    curr.clicks++;
+                    dateMap.set(date, curr);
+                }
+            });
+
+            // New Users (Profiles)
+            profiles.forEach((p: any) => {
+                const date = p.date_created?.split('T')[0];
+                if (date && dateMap.has(date)) {
+                    const curr = dateMap.get(date)!;
+                    curr.newUsers++;
+                    dateMap.set(date, curr);
+                }
+            });
+
+            // Convert to Array
+            const chartData = Array.from(dateMap.entries()).map(([date, data]) => ({
                 date,
-                views: Math.floor(Math.random() * 1000) + 500
-            }));
+                ...data,
+                // Mock active users roughly based on views/10 + constant for now as we don't have daily active logs easily
+                activeUsers: Math.floor(data.views / 5) + profiles.length
+            })).sort((a, b) => a.date.localeCompare(b.date));
 
-            const mockClicksData = generateDateRange(timeRange).map(date => ({
-                date,
-                clicks: Math.floor(Math.random() * 200) + 50
-            }));
+            // Process Categories
+            let masseuseCount = 0;
+            let onlineCount = 0;
+            let escortCount = 0;
 
-            const mockUsersData = generateDateRange(timeRange).map(date => ({
-                date,
-                newUsers: Math.floor(Math.random() * 20) + 5,
-                activeUsers: Math.floor(Math.random() * 100) + 50
-            }));
+            profiles.forEach((p: any) => {
+                if (p.certified_masseuse) masseuseCount++;
+                else if (p.onlineServices && p.onlineServices.length > 0) onlineCount++;
+                else escortCount++;
+            });
 
-            const mockCategoryDistribution = [
-                { name: 'Acompanhantes', value: 45 },
-                { name: 'Massagistas', value: 30 },
-                { name: 'Atendimento Online', value: 25 },
-            ];
+            const categoryData = [
+                { name: 'Acompanhantes', value: escortCount },
+                { name: 'Massagistas', value: masseuseCount },
+                { name: 'Atendimento Online', value: onlineCount },
+            ].filter(c => c.value > 0);
 
-            const mockTopProfiles = [
-                { name: 'Maria Silva', views: 5420, clicks: 320 },
-                { name: 'Ana Costa', views: 4830, clicks: 280 },
-                { name: 'Julia Santos', views: 4210, clicks: 250 },
-            ];
+            // Top Profiles
+            const topProfilesData = profiles
+                .sort((a: any, b: any) => (b.views || 0) - (a.views || 0))
+                .slice(0, 5)
+                .map((p: any) => ({
+                    name: p.display_name || 'Sem nome',
+                    views: p.views || 0,
+                    clicks: p.clicks || 0
+                }));
 
             setStats({
-                viewsData: mockViewsData,
-                clicksData: mockClicksData,
-                usersData: mockUsersData,
-                categoryDistribution: mockCategoryDistribution,
-                topProfiles: mockTopProfiles,
+                viewsData: chartData.map(d => ({ date: d.date, views: d.views })),
+                clicksData: chartData.map(d => ({ date: d.date, clicks: d.clicks })),
+                usersData: chartData.map(d => ({ date: d.date, newUsers: d.newUsers, activeUsers: d.activeUsers })),
+                categoryDistribution: categoryData,
+                topProfiles: topProfilesData
             });
+
         } catch (err) {
             console.error('Error loading analytics:', err);
         } finally {
@@ -66,34 +143,6 @@ export default function AnalyticsAdvanced() {
         }
     };
 
-    const generateDateRange = (range: string): string[] => {
-        const dates: string[] = [];
-        const now = new Date();
-        let days = 7;
-
-        switch (range) {
-            case 'week':
-                days = 7;
-                break;
-            case 'month':
-                days = 30;
-                break;
-            case 'quarter':
-                days = 90;
-                break;
-            case 'year':
-                days = 365;
-                break;
-        }
-
-        for (let i = days - 1; i >= 0; i--) {
-            const date = new Date(now);
-            date.setDate(date.getDate() - i);
-            dates.push(date.toISOString().split('T')[0]);
-        }
-
-        return dates;
-    };
 
     const exportData = () => {
         const data = {

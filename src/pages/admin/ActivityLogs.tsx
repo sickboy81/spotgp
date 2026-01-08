@@ -28,36 +28,40 @@ export default function ActivityLogs() {
     const loadLogs = async () => {
         setLoading(true);
         try {
-            // For now, we'll simulate activity logs by checking recent changes
-            // In a real implementation, you'd have an activity_logs table
-            const activities: ActivityLog[] = [];
+            // Fetch system activity from Directus
+            // @ts-ignore - using directus_activity system collection
+            const activityResult = await directus.request(readItems('directus_activity', {
+                sort: ['-timestamp'],
+                limit: 50,
+                fields: ['*', 'user.first_name', 'user.last_name', 'user.email']
+            }));
 
-            // Get recent reports as activity
-            try {
-                const reports = await directus.request(readItems('reports', {
-                    sort: ['-date_created'],
-                    limit: 50,
-                    fields: ['*', 'reviewed_by'] // Fetch basic fields
-                }));
+            const activities: ActivityLog[] = activityResult.map((act: any) => {
+                let type: ActivityLog['type'] = 'edit';
 
-                if (reports) {
-                    reports.forEach((report: any) => {
-                        activities.push({
-                            id: report.id,
-                            type: 'report',
-                            admin_id: report.reviewed_by || '',
-                            target_id: report.profile_id,
-                            description: `Report criado: ${report.type} - ${(report.description || '').substring(0, 50)}...`,
-                            created: report.date_created,
-                        });
-                    });
-                }
-            } catch (err) {
-                console.warn('Error fetching reports for logs', err);
-            }
+                // Map Directus actions to our types
+                if (act.action === 'create') type = 'edit'; // or creation specific
+                if (act.action === 'delete') type = 'delete';
+                if (act.action === 'update') type = 'edit';
 
-            // Sort by date
-            activities.sort((a, b) => new Date(b.created).getTime() - new Date(a.created).getTime());
+                // If collection is reports, maybe map to 'report'?
+                if (act.collection === 'reports') type = 'report';
+                if (act.collection === 'users' && act.action === 'update') type = 'ban'; // Guesswork for now
+
+                const userName = act.user ?
+                    (act.user.first_name ? `${act.user.first_name} ${act.user.last_name || ''}` : act.user.email)
+                    : 'Sistema';
+
+                return {
+                    id: act.id.toString(),
+                    type: type,
+                    admin_id: act.user?.id || 'system',
+                    target_id: act.item || 'unknown',
+                    description: `${act.action.toUpperCase()} em ${act.collection} por ${userName}`,
+                    created: act.timestamp,
+                    admin_name: userName,
+                };
+            });
 
             setLogs(activities);
         } catch (error) {

@@ -109,49 +109,99 @@ export default function AdminStats() {
                 const dateFilter = getDateFilter();
                 const dateFilterStr = dateFilter?.toISOString();
 
-                // Helper to get count
-                const getCount = async (filter: any = {}) => {
+                // Helper to get count from specific collection
+                const getCount = async (collection: string, filter: any = {}) => {
                     try {
-                        const result = await directus.request(aggregate('profiles', {
+                        const result = await directus.request(aggregate(collection, {
                             aggregate: { count: '*' },
                             query: { filter }
                         }));
                         return parseInt((result[0] as any).count) || 0;
                     } catch (e) {
-                        console.warn("Error aggregation", e);
+                        console.warn(`Error aggregation ${collection}`, e);
                         return 0;
                     }
                 };
 
-                // Total users
-                const totalUsers = await getCount();
+                // Total users (all system users)
+                const totalUsers = await getCount('directus_users', {});
 
-                // Active users (not banned)
-                const activeUsers = await getCount({ is_banned: { _eq: false } });
+                // Active users (system status active)
+                const activeUsers = await getCount('directus_users', { status: { _eq: 'active' } });
 
-                // New users in time range
+                // New users in time range (using directus_users)
                 let newUsers = 0;
+                // Note: directus_users might not expose date_created in all configurations? 
+                // Usually it does or has last_access. Let's try filtering on id or assumption.
+                // If directus_users doesn't support public read of date_created (depends on permissions), this might fail.
+                // Assuming Admin access works (which seems to be the case).
+                // However, directus_users doesn't always have 'date_created' standard field exposed? It does.
+                // BUT recentUsers fetch below uses 'profiles'.
+                // Let's stick to directus_users if possible.
                 if (dateFilterStr) {
-                    newUsers = await getCount({ date_created: { _gte: dateFilterStr } });
+                    // Try to filter users created later than dateFilter
+                    // directus_users field is typically unmanaged or requires specific field?
+                    // Actually, directus_users has no standard 'date_created'.
+                    // 'profiles' has 'date_created'.
+                    // So for "New Users", we technically can only count profiles cleanly unless we assume IDs are sequential or use profile data.
+                    // Or we assume most users have profiles.
+                    // But we just found 10 users without profiles.
+                    // Let's count 'profiles' for "New Users" to require engagement?
+                    // No, User request is "shows fake data" (1 user). They want 11.
+                    // I will TRY to use 'directus_users' but fall back to 'profiles' if needed.
+                    // Actually, directus_users table structure: id, first_name, last_name, email, password, location, title, description, tags, avatar, language, theme, tfa_secret, status, role, token, last_access, last_page.
+                    // It does NOT have date_created by default.
+
+                    // Fallback to profiles for "New TRENDING Users" or assume total count difference?
+                    // Actually, if I can't filter by date on directus_users, I can't effectively calculate "New Users" graph/stat for time range accurately using directus_users.
+                    // BUT, 'AdminStats' time range defaults to 'month'.
+                    // Maybe I keep 'newUsers' based on 'profiles' (Registros Completos)?
+                    // Or I use 'profiles' count for new users.
+                    // If I report Total=11 but New=1 (this month), that might be confusing if 10 registered today.
+
+                    // Let's assume user counting is most important.
+                    // I will iterate 'readUsers' with sort? No, expensive.
+                    // I will stick to 'profiles' for 'newUsers' but label it mentally as "New Profiles".
+                    // OR I count 'directus_users' total.
+
+                    // Actually, let's keep 'newUsers' based on profile creation for now as date_created exists there.
+                    newUsers = await getCount('profiles', { date_created: { _gte: dateFilterStr } });
                 } else {
-                    newUsers = await getCount();
+                    newUsers = await getCount('directus_users'); // 'all' time = all users
                 }
 
-                // Banned users
-                const bannedUsers = await getCount({ is_banned: { _eq: true } });
+                // Banned users (suspended)
+                const bannedUsers = await getCount('directus_users', { status: { _eq: 'suspended' } });
 
                 // Verified profiles
-                const verifiedProfiles = await getCount({ verified: { _eq: true } });
+                const verifiedProfiles = await getCount('profiles', { verified: { _eq: true } });
 
                 // Pending reports
                 const reports = await getReports({ status: 'pending' });
                 const pendingReports = reports.length;
 
-                // Total views (if we had a views table, we'd sum it here)
-                const totalViews = 0; // TODO: Implement views tracking
+                // Total views
+                let totalViews = 0;
+                try {
+                    const viewsResult = await directus.request(aggregate('profiles', {
+                        aggregate: { sum: ['views'] }
+                    }));
+                    // Handling SDK response (result[0].sum.views)
+                    totalViews = parseInt((viewsResult[0] as any).sum?.views) || 0;
+                } catch (e) {
+                    console.warn("Error fetching views", e);
+                }
 
-                // Total revenue (if we had a payments table, we'd sum it here)
-                const totalRevenue = 0; // TODO: Implement revenue tracking
+                // Total revenue
+                let totalRevenue = 0;
+                try {
+                    const revenueResult = await directus.request(aggregate('subscriptions', {
+                        aggregate: { sum: ['amount_paid'] }
+                    }));
+                    totalRevenue = parseFloat((revenueResult[0] as any).sum?.amount_paid) || 0;
+                } catch (e) {
+                    console.warn("Error fetching revenue", e);
+                }
 
                 setStats({
                     totalUsers: totalUsers || 0,

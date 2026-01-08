@@ -44,17 +44,14 @@ export function isStrongPassword(password: string): { valid: boolean; errors: st
     };
 }
 
+import DOMPurify from 'dompurify';
+
 /**
- * Sanitize string input (basic XSS protection)
+ * Sanitize string input (XSS protection via DOMPurify)
  */
 export function sanitizeInput(input: string): string {
     if (!input || typeof input !== 'string') return '';
-
-    return input
-        .trim()
-        .replace(/[<>]/g, '') // Remove < and >
-        .replace(/javascript:/gi, '') // Remove javascript: protocol
-        .replace(/on\w+=/gi, ''); // Remove event handlers like onclick=
+    return DOMPurify.sanitize(input.trim());
 }
 
 /**

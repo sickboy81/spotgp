@@ -1,17 +1,21 @@
 import { useState, useEffect } from 'react';
 import { Image as ImageIcon, Video, FileText, Search, Trash2, Download, Loader2, User } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { directus } from '@/lib/directus';
+import { readFiles, deleteFile, readItems, updateItem } from '@directus/sdk';
 import { cn } from '@/lib/utils';
 
 interface MediaItem {
-    id: string;
+    id: string; // File ID or Composite ID for profile photos
     url: string;
     type: 'image' | 'video';
     size: number;
     owner_id?: string;
     owner_name?: string;
-    profile_id?: string;
-    created_at: string;
+    created_at?: string;
+    origin: 'directus' | 'profile';
+    profile_id?: string; // For profile photos
+    original_url?: string; // For exact matching when deleting from profile
 }
 
 export default function MediaManagement() {
@@ -29,9 +33,71 @@ export default function MediaManagement() {
     const loadMedia = async () => {
         setLoading(true);
         try {
-            // TODO: Load from database
-            const mockMedia: MediaItem[] = [];
-            setMedia(mockMedia);
+            const [files, profiles] = await Promise.all([
+                directus.request(readFiles({
+                    sort: ['-uploaded_on'],
+                    limit: 50,
+                    fields: ['*', 'uploaded_by.first_name', 'uploaded_by.last_name']
+                })),
+                directus.request(readItems('profiles', {
+                    fields: ['id', 'display_name', 'photos', 'user.first_name', 'user.last_name'],
+                    limit: 50, // Consider pagination in future
+                    filter: { photos: { _nnull: true } }
+                }))
+            ]);
+
+            const directusMedia: MediaItem[] = files.map((file: any) => {
+                const isImage = file.type?.startsWith('image/') || file.filename_download?.match(/\.(jpg|jpeg|png|gif|webp)$/i);
+                const isVideo = file.type?.startsWith('video/') || file.filename_download?.match(/\.(mp4|webm|mov)$/i);
+
+                return {
+                    id: file.id,
+                    url: `${import.meta.env.VITE_DIRECTUS_URL || 'https://base.spotgp.com'}/assets/${file.id}`,
+                    type: isImage ? 'image' : (isVideo ? 'video' : 'image'),
+                    size: parseInt(file.filesize) || 0,
+                    owner_id: file.uploaded_by?.id,
+                    owner_name: file.uploaded_by ? (file.uploaded_by.first_name || 'Usuário') : 'Sistema',
+                    created_at: file.uploaded_on,
+                    origin: 'directus'
+                };
+            }).filter((m: MediaItem) => m.type === 'image' || m.type === 'video');
+
+            const profileMedia: MediaItem[] = [];
+            profiles.forEach((profile: any) => {
+                let photos: string[] = [];
+                if (Array.isArray(profile.photos)) {
+                    photos = profile.photos;
+                } else if (typeof profile.photos === 'string') {
+                    try {
+                        photos = JSON.parse(profile.photos);
+                    } catch (e) { /* ignore */ }
+                }
+
+                if (Array.isArray(photos)) {
+                    photos.forEach((photoUrl: string, index: number) => {
+                        // Check if URL is internal or external
+                        const isInternal = !photoUrl.startsWith('http');
+                        const url = isInternal
+                            ? `${import.meta.env.VITE_DIRECTUS_URL || 'https://base.spotgp.com'}/assets/${photoUrl}`
+                            : photoUrl;
+
+                        profileMedia.push({
+                            id: `profile_${profile.id}_${index}`,
+                            url: url,
+                            original_url: photoUrl,
+                            type: 'image', // Profile photos are typically images
+                            size: 0, // Unknown size for external
+                            owner_id: profile.user?.id || profile.id,
+                            owner_name: profile.display_name || profile.user?.first_name || 'Perfil',
+                            created_at: undefined,
+                            origin: 'profile',
+                            profile_id: profile.id
+                        });
+                    });
+                }
+            });
+
+            setMedia([...directusMedia, ...profileMedia]);
         } catch (err) {
             console.error('Error loading media:', err);
         } finally {
@@ -40,10 +106,45 @@ export default function MediaManagement() {
     };
 
     const handleBulkDelete = async () => {
-        if (!confirm(`Tem certeza que deseja deletar ${selectedItems.length} arquivo(s)?`)) return;
-        // TODO: Bulk delete
-        setMedia(media.filter(m => !selectedItems.includes(m.id)));
-        setSelectedItems([]);
+        if (!confirm(`Tem certeza que deseja excluir ${selectedItems.length} itens?`)) return;
+
+        try {
+            for (const id of selectedItems) {
+                const item = media.find(m => m.id === id);
+                if (!item) continue;
+
+                if (item.origin === 'directus') {
+                    await directus.request(deleteFile(id));
+                } else if (item.origin === 'profile' && item.profile_id && item.original_url) {
+                    // Remove from profile photos array
+                    const profile = await directus.request(readItems('profiles', {
+                        filter: { id: { _eq: item.profile_id } },
+                        limit: 1,
+                        fields: ['id', 'photos']
+                    }));
+
+                    if (profile && profile[0]) {
+                        let currentPhotos = profile[0].photos;
+                        if (typeof currentPhotos === 'string') {
+                            try { currentPhotos = JSON.parse(currentPhotos); } catch (e) { }
+                        }
+                        if (Array.isArray(currentPhotos)) {
+                            const newPhotos = currentPhotos.filter((p: string) => p !== item.original_url);
+                            await directus.request(updateItem('profiles', item.profile_id, {
+                                photos: newPhotos
+                            }));
+                        }
+                    }
+                }
+            }
+
+            setSelectedItems([]);
+            loadMedia();
+            alert('Itens excluídos com sucesso!');
+        } catch (err) {
+            console.error('Error deleting items:', err);
+            alert('Erro ao excluir alguns itens.');
+        }
     };
 
     const formatFileSize = (bytes: number) => {

@@ -33,10 +33,11 @@ export default function AdsManagement() {
         setLoading(true);
         try {
             // Fetch profiles with role 'advertiser'
+            // Fetch profiles with ad_id (Advertisers)
             const profiles = await directus.request(readItems('profiles', {
-                filter: { role: { _eq: 'advertiser' } },
+                filter: { ad_id: { _null: false } },
                 sort: ['-date_created'],
-                fields: ['id', 'display_name', 'ad_id', 'date_created', 'is_featured', 'is_sponsored', 'views', 'clicks']
+                fields: ['id', 'display_name', 'ad_id', 'date_created', 'is_featured', 'is_sponsored', 'views', 'clicks', 'priority']
             }));
 
             // Map profiles to ads (in a real app, you'd have an ads table)
@@ -47,8 +48,8 @@ export default function AdsManagement() {
                 ad_id: profile.ad_id || '',
                 is_featured: profile.is_featured || false,
                 is_sponsored: profile.is_sponsored || false,
-                priority: 0,
-                views: profile.views || 0, // Using profile fields if they exist
+                priority: profile.priority || 0,
+                views: profile.views || 0,
                 clicks: profile.clicks || 0,
             }));
 

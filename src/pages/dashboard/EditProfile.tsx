@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { GENDERS, SERVICE_LOCATIONS, HAIR_COLORS, BODY_TYPES, ETHNICITIES, STATURES, BREAST_TYPES, PUBIS_TYPES } from '@/lib/constants/profile-options';
 import { BRAZILIAN_CITIES } from '@/lib/constants/brazilian-cities';
+import { CITY_NEIGHBORHOODS } from '@/lib/constants/neighborhoods';
 import { getStateAbbreviation } from '@/lib/constants/brazilian-states';
 import { ADVERTISER_CATEGORIES } from '@/lib/constants/categories';
 import { SERVICE_TO, MASSAGE_TYPES, HAPPY_ENDING, OTHER_SERVICES } from '@/lib/constants/massage-options';
@@ -8,7 +9,7 @@ import { ESCORT_SERVICES, ESCORT_SPECIAL_SERVICES, ORAL_SEX_OPTIONS } from '@/li
 import { ONLINE_SERVICES, ONLINE_SERVICE_TO, VIRTUAL_FANTASIES, FOR_SALE } from '@/lib/constants/online-options';
 import { geocodeAddress, geocodeWithNominatim } from '@/lib/services/geocoding';
 import { LeafletMap } from '@/components/ui/LeafletMap';
-import { MapPin, DollarSign, Home, CheckCircle, XCircle, Loader2, Phone, FileText, Clock, Camera, Play, Volume2, AlertTriangle, Users, User, Heart, Sparkles, Award, Monitor, ShoppingCart, Gamepad2, Search } from 'lucide-react';
+import { MapPin, DollarSign, Home, CheckCircle, XCircle, Loader2, Phone, FileText, Clock, Camera, Play, Volume2, AlertTriangle, Users, User, Heart, Sparkles, Award, Monitor, ShoppingCart, Gamepad2, Search, Send } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import { loadProfile, saveProfile, ProfileData } from '@/lib/api/profile';
@@ -17,6 +18,7 @@ import { VideoGrid, VideoItem } from '@/components/features/media/VideoGrid';
 import { MediaRulesModal } from '@/components/features/media/MediaRulesModal';
 import { PriceTable } from '@/components/features/media/PriceTable';
 import { AudioUploader } from '@/components/features/media/AudioUploader';
+import { compressProfilePhoto } from '@/lib/imageCompression';
 import { uploadToR2 } from '@/lib/services/r2-storage';
 
 export default function EditProfile() {
@@ -299,9 +301,16 @@ export default function EditProfile() {
         setSaveStatus({ type: null, message: '' });
 
         try {
-            // Geocode address if city is provided
+            // Geocode address logic
             const updatedProfile: ProfileData = { ...profile };
-            if (profile.city && profile.state) {
+
+            // Priority 1: Use explicitly set map coordinates (from "Mostrar mapa")
+            if (profile.map_coordinates && profile.map_coordinates.lat && profile.map_coordinates.lng) {
+                updatedProfile.latitude = Number(profile.map_coordinates.lat);
+                updatedProfile.longitude = Number(profile.map_coordinates.lng);
+            }
+            // Priority 2: Geocode based on City/State if no specific map set
+            else if (profile.city && profile.state) {
                 try {
                     const coords = await geocodeAddress(
                         profile.city,
@@ -314,7 +323,7 @@ export default function EditProfile() {
                     updatedProfile.longitude = coords.lng;
                 } catch (geocodeError) {
                     console.warn('Geocoding failed, will use city coordinates:', geocodeError);
-                    // Continue without precise coordinates - will fallback to city coords
+                    // Continue without precise coordinates
                 }
             }
 
@@ -327,7 +336,13 @@ export default function EditProfile() {
             try {
                 const photoPromises = photos.map(async (p) => {
                     if (p.file) {
-                        return await uploadToR2(p.file, 'photos');
+                        try {
+                            const { file: compressedFile } = await compressProfilePhoto(p.file);
+                            return await uploadToR2(compressedFile, 'photos');
+                        } catch (err) {
+                            console.error("Compression failed, uploading original", err);
+                            return await uploadToR2(p.file, 'photos');
+                        }
                     }
                     return p.url;
                 });
@@ -484,106 +499,362 @@ export default function EditProfile() {
                                 ))}
                             </div>
                         </div>
-                    </div>
 
-                    {/* Location Fields - Only for Acompanhantes and Massagistas */}
-                    {(profile.category === 'Acompanhante' || profile.category === 'Massagista') && (
-                        <div className="pt-6 border-t border-border mt-6 space-y-6">
-                            {/* Search Helper */}
-                            <div>
-                                <label className="block text-sm font-medium mb-2 text-muted-foreground">
-                                    Pesquisa facilmente a tua cidade ou bairro.
-                                </label>
-                                <div className="relative">
-                                    <input
-                                        type="text"
-                                        placeholder="São Paulo, Rio de Janeiro, Copacabana, ..."
-                                        maxLength={200}
-                                        className="w-full p-3 pr-10 border border-border rounded-lg bg-background text-foreground focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-                                        onKeyDown={handleLocationSearch}
-                                        onBlur={handleLocationSearch}
-                                    />
-                                    <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                                </div>
+                        {/* Seção: Formas de Pagamento */}
+                        <div>
+                            <div className="flex items-center gap-2 mb-2">
+                                <DollarSign className="w-4 h-4 text-green-500" />
+                                <label className="text-sm font-medium">Formas de Pagamento</label>
                             </div>
 
-                            {/* State and City */}
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <div>
-                                    <label className="block text-sm font-medium mb-2">Estado</label>
-                                    <select
-                                        value={profile.state}
-                                        onChange={(e) => setProfile(prev => ({ ...prev, state: e.target.value, city: '' }))}
-                                        className="w-full p-3 border border-border rounded-lg bg-background text-foreground appearance-none cursor-pointer hover:border-border/80 focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-                                        title="Estado"
-                                    >
-                                        <option value="">Selecionar um estado</option>
-                                        {Array.from(new Set(Object.values(BRAZILIAN_CITIES).map(c => c.state))).sort().map(state => (
-                                            <option key={state} value={state}>{state}</option>
-                                        ))}
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium mb-2">Cidade</label>
-                                    <select
-                                        value={profile.city}
-                                        onChange={(e) => setProfile(prev => ({ ...prev, city: e.target.value }))}
-                                        disabled={!profile.state}
-                                        className="w-full p-3 border border-border rounded-lg bg-background text-foreground appearance-none cursor-pointer hover:border-border/80 focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                                        title="Cidade"
-                                    >
-                                        <option value="">Selecionar uma cidade</option>
-                                        {profile.state && Object.entries(BRAZILIAN_CITIES)
-                                            .filter(([_, data]) => data.state === profile.state)
-                                            .map(([cityName]) => (
-                                                <option key={cityName} value={cityName}>{cityName}</option>
-                                            ))
-                                            .sort()
-                                        }
-                                    </select>
-                                </div>
-                            </div>
-
-                            {/* Area (Neighborhood) */}
-                            <div>
-                                <label className="block text-sm font-medium mb-2">Área</label>
-                                <div className="flex items-center gap-2">
-                                    <input
-                                        type="text"
-                                        value={profile.neighborhood || ''}
-                                        onChange={(e) => setProfile(prev => ({ ...prev, neighborhood: e.target.value }))}
-                                        placeholder="Selecionar uma cidade" // Placeholder matches screenshot
-                                        maxLength={200}
-                                        className="w-full p-3 border border-border rounded-lg bg-background text-foreground focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-                                    />
-                                    <span className="text-sm text-muted-foreground whitespace-nowrap">(Opcional)</span>
-                                </div>
+                            <div className="flex flex-wrap gap-2">
+                                {['PIX', 'Dinheiro', 'Cartão de Débito', 'Cartão de Crédito', 'Paypal'].map(method => (
+                                    <label key={method} className={cn(
+                                        "flex items-center gap-2 px-3 py-2 border rounded-lg cursor-pointer transition-all text-sm",
+                                        Array.isArray(profile.payment_methods) && profile.payment_methods.includes(method)
+                                            ? "border-primary bg-primary/5 text-primary font-medium"
+                                            : "border-border hover:border-gray-400"
+                                    )}>
+                                        <input
+                                            type="checkbox"
+                                            checked={Array.isArray(profile.payment_methods) && profile.payment_methods.includes(method)}
+                                            onChange={(e) => {
+                                                const current = Array.isArray(profile.payment_methods) ? [...profile.payment_methods] : [];
+                                                if (e.target.checked) {
+                                                    if (!current.includes(method)) current.push(method);
+                                                } else {
+                                                    const idx = current.indexOf(method);
+                                                    if (idx > -1) current.splice(idx, 1);
+                                                }
+                                                setProfile(prev => ({ ...prev, payment_methods: current }));
+                                            }}
+                                            className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary"
+                                        />
+                                        <span>{method}</span>
+                                    </label>
+                                ))}
                             </div>
                         </div>
-                    )}
-                </section>
+                    </div>
+
+
+                    {/* Location Fields - Only for Acompanhantes and Massagistas */}
+                    {
+                        (profile.category === 'Acompanhante' || profile.category === 'Massagista') && (
+                            <div className="pt-6 border-t border-border mt-6 space-y-6">
+                                {/* Search Helper */}
+                                <div>
+                                    <label className="block text-sm font-medium mb-2 text-muted-foreground">
+                                        Pesquisa facilmente a tua cidade ou bairro.
+                                    </label>
+                                    <div className="relative">
+                                        <input
+                                            type="text"
+                                            placeholder="São Paulo, Rio de Janeiro, Copacabana, ..."
+                                            maxLength={200}
+                                            className="w-full p-3 pr-10 border border-border rounded-lg bg-background text-foreground focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                                            onKeyDown={handleLocationSearch}
+                                            onBlur={handleLocationSearch}
+                                        />
+                                        <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                                    </div>
+                                </div>
+
+                                {/* State and City */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div>
+                                        <label className="block text-sm font-medium mb-2">Estado</label>
+                                        <select
+                                            value={profile.state}
+                                            onChange={(e) => setProfile(prev => ({ ...prev, state: e.target.value, city: '' }))}
+                                            className="w-full p-3 border border-border rounded-lg bg-background text-foreground appearance-none cursor-pointer hover:border-border/80 focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                                            title="Estado"
+                                        >
+                                            <option value="">Selecionar um estado</option>
+                                            {Array.from(new Set(Object.values(BRAZILIAN_CITIES).map(c => c.state))).sort().map(state => (
+                                                <option key={state} value={state}>{state}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium mb-2">Cidade</label>
+                                        <select
+                                            value={profile.city}
+                                            onChange={(e) => setProfile(prev => ({ ...prev, city: e.target.value }))}
+                                            disabled={!profile.state}
+                                            className="w-full p-3 border border-border rounded-lg bg-background text-foreground appearance-none cursor-pointer hover:border-border/80 focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                            title="Cidade"
+                                        >
+                                            <option value="">Selecionar uma cidade</option>
+                                            {profile.state && Object.entries(BRAZILIAN_CITIES)
+                                                .filter(([_, data]) => data.state === profile.state)
+                                                .map(([cityName]) => (
+                                                    <option key={cityName} value={cityName}>{cityName}</option>
+                                                ))
+                                                .sort()
+                                            }
+                                        </select>
+                                    </div>
+                                </div>
+
+                                {/* Area (Neighborhood) */}
+                                <div>
+                                    <label className="block text-sm font-medium mb-2">Área</label>
+                                    <div className="flex items-center gap-2">
+                                        <input
+                                            type="text"
+                                            value={profile.neighborhood || ''}
+                                            onChange={(e) => setProfile(prev => ({ ...prev, neighborhood: e.target.value }))}
+                                            placeholder="Selecionar uma cidade" // Placeholder matches screenshot
+                                            maxLength={200}
+                                            className="w-full p-3 border border-border rounded-lg bg-background text-foreground focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                                        />
+                                        <span className="text-sm text-muted-foreground whitespace-nowrap">(Opcional)</span>
+                                    </div>
+                                </div>
+
+                                {/* Locais que atendo (Neighborhoods) - Shows only if city has available neighborhoods */}
+                                {profile.city && (
+                                    <div className="mt-4">
+                                        <label className="block text-sm font-medium mb-3">Locais que atendo</label>
+
+                                        {/* Predefined Neighborhoods List */}
+                                        {CITY_NEIGHBORHOODS[profile.city] && (
+                                            <div className="flex flex-wrap gap-2 mb-4">
+                                                {CITY_NEIGHBORHOODS[profile.city].map(neigh => (
+                                                    <label key={neigh} className={cn(
+                                                        "px-3 py-1.5 rounded-lg border text-xs cursor-pointer transition-all select-none",
+                                                        Array.isArray(profile.service_neighborhoods) && profile.service_neighborhoods.includes(neigh)
+                                                            ? "bg-primary text-primary-foreground border-primary font-medium"
+                                                            : "bg-muted text-muted-foreground border-border hover:border-primary/50"
+                                                    )}>
+                                                        <input
+                                                            type="checkbox"
+                                                            className="sr-only"
+                                                            checked={Array.isArray(profile.service_neighborhoods) && profile.service_neighborhoods.includes(neigh)}
+                                                            onChange={(e) => {
+                                                                const current = Array.isArray(profile.service_neighborhoods) ? [...profile.service_neighborhoods] : [];
+                                                                if (e.target.checked) {
+                                                                    if (!current.includes(neigh)) current.push(neigh);
+                                                                } else {
+                                                                    const idx = current.indexOf(neigh);
+                                                                    if (idx > -1) current.splice(idx, 1);
+                                                                }
+                                                                setProfile(prev => ({ ...prev, service_neighborhoods: current }));
+                                                            }}
+                                                        />
+                                                        {neigh}
+                                                    </label>
+                                                ))}
+                                            </div>
+                                        )}
+
+                                        {/* Manual Neighborhood Entry (Tag Input) */}
+                                        <div className="flex flex-col gap-2">
+                                            <div className="flex gap-2">
+                                                <input
+                                                    type="text"
+                                                    id="manual-neighborhood-input"
+                                                    placeholder="Digite outro bairro (ex: Centro)"
+                                                    className="flex-1 p-2 border border-border rounded-md text-sm bg-background"
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter') {
+                                                            e.preventDefault();
+                                                            const val = e.currentTarget.value.trim();
+                                                            if (val) {
+                                                                const current = Array.isArray(profile.service_neighborhoods) ? [...profile.service_neighborhoods] : [];
+                                                                if (!current.includes(val)) {
+                                                                    setProfile(prev => ({ ...prev, service_neighborhoods: [...current, val] }));
+                                                                }
+                                                                e.currentTarget.value = '';
+                                                            }
+                                                        }
+                                                    }}
+                                                />
+                                                <button
+                                                    type="button"
+                                                    className="px-4 py-2 bg-secondary text-secondary-foreground text-sm font-medium rounded-md hover:bg-secondary/80 transition-colors"
+                                                    onClick={() => {
+                                                        const input = document.getElementById('manual-neighborhood-input') as HTMLInputElement;
+                                                        if (input && input.value.trim()) {
+                                                            const val = input.value.trim();
+                                                            const current = Array.isArray(profile.service_neighborhoods) ? [...profile.service_neighborhoods] : [];
+                                                            if (!current.includes(val)) {
+                                                                setProfile(prev => ({ ...prev, service_neighborhoods: [...current, val] }));
+                                                            }
+                                                            input.value = '';
+                                                        }
+                                                    }}
+                                                >
+                                                    Adicionar
+                                                </button>
+                                            </div>
+
+                                            {/* Display manually added neighborhoods that are NOT in the predefined list (or all if no list) */}
+                                            {Array.isArray(profile.service_neighborhoods) && profile.service_neighborhoods.length > 0 && (
+                                                <div className="flex flex-wrap gap-2 mt-2">
+                                                    {profile.service_neighborhoods
+                                                        .filter(n => !CITY_NEIGHBORHOODS[profile.city!]?.includes(n)) // Only show manually added ones here if list exists
+                                                        .map(n => (
+                                                            <span key={n} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium border border-primary/20">
+                                                                {n}
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        const current = [...(profile.service_neighborhoods || [])];
+                                                                        const idx = current.indexOf(n);
+                                                                        if (idx > -1) {
+                                                                            current.splice(idx, 1);
+                                                                            setProfile(prev => ({ ...prev, service_neighborhoods: current }));
+                                                                        }
+                                                                    }}
+                                                                    className="hover:text-destructive transition-colors"
+                                                                >
+                                                                    ×
+                                                                </button>
+                                                            </span>
+                                                        ))}
+                                                </div>
+                                            )}
+                                            <p className="text-[10px] text-muted-foreground">
+                                                * Pressione Enter ou clique em Adicionar para incluir bairros manualmente.
+                                            </p>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )
+                    }
+                </section >
 
                 {/* Seção: Contato */}
-                <section className="bg-card border border-border rounded-lg p-6">
+                < section className="bg-card border border-border rounded-lg p-6" >
                     <div className="flex items-center gap-2 mb-4">
                         <Phone className="w-5 h-5 text-destructive" />
                         <h2 className="text-xl font-bold">Contato</h2>
                     </div>
-                    <div>
-                        <label className="block text-sm font-medium mb-2">Telefone</label>
-                        <input
-                            type="tel"
-                            value={profile.phone || ''}
-                            onChange={(e) => setProfile(prev => ({ ...prev, phone: e.target.value }))}
-                            maxLength={20}
-                            className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-primary outline-none"
-                            placeholder="(11) 98765-4321"
-                        />
+
+                    <div className="space-y-6">
+                        {/* Telefone e Preferências */}
+                        <div>
+                            <label className="block text-sm font-medium mb-2">Telefone (WhatsApp)</label>
+                            <input
+                                type="tel"
+                                value={profile.phone || ''}
+                                onChange={(e) => {
+                                    // Mask (XX) XXXXX-XXXX
+                                    let v = e.target.value.replace(/\D/g, '');
+                                    if (v.length > 11) v = v.slice(0, 11);
+                                    if (v.length > 7) {
+                                        v = `(${v.slice(0, 2)}) ${v.slice(2, 7)}-${v.slice(7)}`;
+                                    } else if (v.length > 2) {
+                                        v = `(${v.slice(0, 2)}) ${v.slice(2)}`;
+                                    }
+                                    setProfile(prev => ({ ...prev, phone: v }));
+                                }}
+                                maxLength={15}
+                                className="w-full bg-background border border-input rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-primary outline-none"
+                                placeholder="(11) 99999-9999"
+                            />
+                            <p className="text-xs text-muted-foreground mt-1">
+                                Digite apenas números, a formatação é automática.
+                            </p>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <label className={cn(
+                                "flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-all",
+                                profile.accepts_calls ? "border-green-500 bg-green-500/10" : "border-border hover:border-gray-400"
+                            )}>
+                                <span className="flex items-center gap-2 font-medium">
+                                    <Phone className="w-4 h-4" /> Ligações
+                                </span>
+                                <input
+                                    type="checkbox"
+                                    checked={profile.accepts_calls !== false} // Default true
+                                    onChange={(e) => setProfile(prev => ({ ...prev, accepts_calls: e.target.checked }))}
+                                    className="w-4 h-4 text-green-600 focus:ring-green-500"
+                                />
+                            </label>
+
+                            <label className={cn(
+                                "flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-all",
+                                profile.accepts_whatsapp !== false ? "border-green-500 bg-green-500/10" : "border-border hover:border-gray-400"
+                            )}>
+                                <span className="flex items-center gap-2 font-medium">
+                                    <Users className="w-4 h-4" /> WhatsApp
+                                </span>
+                                <input
+                                    type="checkbox"
+                                    checked={profile.accepts_whatsapp !== false} // Default true
+                                    onChange={(e) => setProfile(prev => ({ ...prev, accepts_whatsapp: e.target.checked }))}
+                                    className="w-4 h-4 text-green-600 focus:ring-green-500"
+                                />
+                            </label>
+
+                            <label className={cn(
+                                "flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-all",
+                                profile.accepts_telegram ? "border-green-500 bg-green-500/10" : "border-border hover:border-gray-400"
+                            )}>
+                                <span className="flex items-center gap-2 font-medium">
+                                    <Send className="w-4 h-4" /> Telegram
+                                </span>
+                                <input
+                                    type="checkbox"
+                                    checked={profile.accepts_telegram || false} // Default false? Or true? Let's assume false if unchecked
+                                    onChange={(e) => setProfile(prev => ({ ...prev, accepts_telegram: e.target.checked }))}
+                                    className="w-4 h-4 text-green-600 focus:ring-green-500"
+                                />
+                            </label>
+                        </div>
+
+                        {/* Redes Sociais */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-border">
+                            <div>
+                                <label className="block text-sm font-medium mb-2">Telegram (Usuário)</label>
+                                <div className="relative">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">@</span>
+                                    <input
+                                        type="text"
+                                        value={profile.telegram || ''}
+                                        onChange={(e) => setProfile(prev => ({ ...prev, telegram: e.target.value.replace('@', '') }))}
+                                        className="w-full bg-background border border-input rounded-md pl-8 pr-3 py-2 text-sm focus:ring-1 focus:ring-primary outline-none"
+                                        placeholder="seu.usuario"
+                                    />
+                                </div>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium mb-2">Instagram</label>
+                                <div className="relative">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">@</span>
+                                    <input
+                                        type="text"
+                                        value={profile.instagram || ''}
+                                        onChange={(e) => setProfile(prev => ({ ...prev, instagram: e.target.value.replace('@', '') }))}
+                                        className="w-full bg-background border border-input rounded-md pl-8 pr-3 py-2 text-sm focus:ring-1 focus:ring-primary outline-none"
+                                        placeholder="seu.insta"
+                                    />
+                                </div>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium mb-2">X (Twitter)</label>
+                                <div className="relative">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">@</span>
+                                    <input
+                                        type="text"
+                                        value={profile.twitter || ''}
+                                        onChange={(e) => setProfile(prev => ({ ...prev, twitter: e.target.value.replace('@', '') }))}
+                                        className="w-full bg-background border border-input rounded-md pl-8 pr-3 py-2 text-sm focus:ring-1 focus:ring-primary outline-none"
+                                        placeholder="seu.twitter"
+                                    />
+                                </div>
+                            </div>
+                        </div>
                     </div>
-                </section>
+                </section >
 
                 {/* Seção: Apresentação */}
-                <section className="bg-card border border-border rounded-lg p-6">
+                < section className="bg-card border border-border rounded-lg p-6" >
                     <div className="flex items-center gap-2 mb-4">
                         <FileText className="w-5 h-5 text-destructive" />
                         <h2 className="text-xl font-bold">Apresentação</h2>
@@ -641,10 +912,10 @@ export default function EditProfile() {
                             </p>
                         </div>
                     </div>
-                </section>
+                </section >
 
                 {/* Seção: Sobre você */}
-                <section className="bg-card border border-border rounded-lg p-6">
+                < section className="bg-card border border-border rounded-lg p-6" >
                     <div className="flex items-center gap-2 mb-4">
                         <User className="w-5 h-5 text-destructive" />
                         <h2 className="text-xl font-bold">Sobre você</h2>
@@ -822,295 +1093,31 @@ export default function EditProfile() {
                             </div>
                         </div>
                     </div>
-                </section>
+                </section >
 
                 {/* Seção: Atendimento a (Genérico - Exceto Online) */}
-                {profile.category !== 'Atendimento Online' && (
-                    <section className="bg-card border border-border rounded-lg p-6">
-                        <div className="flex items-center gap-2 mb-4">
-                            <Users className="w-5 h-5 text-destructive" />
-                            <h2 className="text-xl font-bold">Atendimento a</h2>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                            {SERVICE_TO.map((option) => (
-                                <label
-                                    key={option}
-                                    className={cn(
-                                        "flex-1 md:flex-none px-4 py-2 border rounded-sm cursor-pointer transition-all flex items-center justify-center gap-2 text-sm",
-                                        profile.serviceTo?.includes(option)
-                                            ? "border-destructive/50 bg-destructive/5 text-destructive font-medium shadow-sm"
-                                            : "border-border hover:border-destructive/30 bg-background"
-                                    )}
-                                >
-                                    <input
-                                        type="checkbox"
-                                        checked={profile.serviceTo?.includes(option) || false}
-                                        onChange={() => toggleArrayItem('serviceTo', option)}
-                                        className="sr-only"
-                                    />
-                                    <span>{option}</span>
-                                </label>
-                            ))}
-                        </div>
-                    </section>
-                )}
-
-                {/* Seção: Serviços - Apenas para Acompanhantes */}
-                {profile.category === 'Acompanhante' && (
-                    <>
-                        {/* Serviços */}
-                        <section className="bg-card border border-border rounded-lg p-6">
-                            <div className="flex items-center gap-2 mb-4">
-                                <Heart className="w-5 h-5 text-destructive" />
-                                <h2 className="text-xl font-bold">Serviços</h2>
-                            </div>
-                            <div className="flex flex-wrap gap-2">
-                                {ESCORT_SERVICES.map((option) => (
-                                    <label
-                                        key={option}
-                                        className={cn(
-                                            "flex-1 md:flex-none px-4 py-2 border rounded-sm cursor-pointer transition-all flex items-center justify-center text-sm",
-                                            profile.escortServices?.includes(option)
-                                                ? "border-destructive/50 bg-destructive/5 text-destructive font-medium shadow-sm"
-                                                : "border-border hover:border-destructive/30 bg-background"
-                                        )}
-                                    >
-                                        <input
-                                            type="checkbox"
-                                            checked={profile.escortServices?.includes(option) || false}
-                                            onChange={() => toggleArrayItem('escortServices', option)}
-                                            className="sr-only"
-                                        />
-                                        <span>{option}</span>
-                                    </label>
-                                ))}
-
-                                {/* Sexo Oral - Dropdown */}
-                                <div className="flex-1 md:flex-none">
-                                    <div className="relative">
-                                        <select
-                                            value={profile.oralSex || ''}
-                                            onChange={(e) => setProfile(prev => ({ ...prev, oralSex: e.target.value }))}
-                                            className={cn(
-                                                "w-full h-full min-w-[140px] px-4 py-2 border rounded-sm appearance-none bg-background cursor-pointer text-sm focus:outline-none focus:border-destructive/50",
-                                                profile.oralSex
-                                                    ? "border-destructive/50 bg-destructive/5 text-destructive font-bold"
-                                                    : "border-border hover:border-destructive/30"
-                                            )}
-                                        >
-                                            <option value="">Sexo oral</option>
-                                            {ORAL_SEX_OPTIONS.map((opt) => (
-                                                <option key={opt} value={opt}>{opt}</option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                </div>
-                            </div>
-                        </section>
-
-                        {/* Serviços Especiais */}
-                        <section className="bg-card border border-border rounded-lg p-6">
-                            <div className="flex items-center gap-2 mb-4">
-                                <Sparkles className="w-5 h-5 text-destructive" />
-                                <h2 className="text-xl font-bold">Serviços especiais</h2>
-                            </div>
-                            <div className="flex flex-wrap gap-2">
-                                {ESCORT_SPECIAL_SERVICES.map((option) => (
-                                    <label
-                                        key={option}
-                                        className={cn(
-                                            "flex-1 md:flex-none px-4 py-2 border rounded-sm cursor-pointer transition-all flex items-center justify-center text-sm",
-                                            profile.escortSpecialServices?.includes(option)
-                                                ? "border-destructive/50 bg-destructive/5 text-destructive font-medium shadow-sm"
-                                                : "border-border hover:border-destructive/30 bg-background"
-                                        )}
-                                    >
-                                        <input
-                                            type="checkbox"
-                                            checked={profile.escortSpecialServices?.includes(option) || false}
-                                            onChange={() => toggleArrayItem('escortSpecialServices', option)}
-                                            className="sr-only"
-                                        />
-                                        <span>{option}</span>
-                                    </label>
-                                ))}
-                            </div>
-                        </section>
-                    </>
-                )}
-
-                {/* Seção: Serviços - Apenas para Massagistas */}
-                {profile.category === 'Massagista' && (
-                    <>
-                        {/* Sobre você - Certificado */}
-                        <section className="bg-card border border-border rounded-lg p-6">
-                            <div className="flex items-center gap-2 mb-4">
-                                <User className="w-5 h-5 text-destructive" />
-                                <h2 className="text-xl font-bold">Sobre você</h2>
-                            </div>
-                            <div>
-                                <label className="block text-sm font-bold mb-2">Certificado</label>
-                                <label
-                                    className={cn(
-                                        "inline-flex px-4 py-2 border rounded-sm cursor-pointer transition-all items-center justify-center text-sm",
-                                        profile.certified_masseuse
-                                            ? "border-destructive/50 bg-destructive/5 text-destructive font-medium shadow-sm"
-                                            : "border-border hover:border-destructive/30 bg-background"
-                                    )}
-                                >
-                                    <input
-                                        type="checkbox"
-                                        checked={profile.certified_masseuse || false}
-                                        onChange={(e) => setProfile(prev => ({ ...prev, certified_masseuse: e.target.checked }))}
-                                        className="sr-only"
-                                    />
-                                    <span>Massagista certificada</span>
-                                </label>
-                            </div>
-                        </section>
-
-                        {/* Tipos de massagens */}
-                        <section className="bg-card border border-border rounded-lg p-6">
-                            <div className="flex items-center gap-2 mb-4">
-                                <Award className="w-5 h-5 text-destructive" />
-                                <h2 className="text-xl font-bold">Tipos de massagens</h2>
-                            </div>
-                            <div className="flex flex-wrap gap-2">
-                                {MASSAGE_TYPES.map((option) => (
-                                    <label
-                                        key={option}
-                                        className={cn(
-                                            "flex-1 md:flex-none px-4 py-2 border rounded-sm cursor-pointer transition-all flex items-center justify-center text-sm",
-                                            profile.massageTypes?.includes(option)
-                                                ? "border-destructive/50 bg-destructive/5 text-destructive font-medium shadow-sm"
-                                                : "border-border hover:border-destructive/30 bg-background"
-                                        )}
-                                    >
-                                        <input
-                                            type="checkbox"
-                                            checked={profile.massageTypes?.includes(option) || false}
-                                            onChange={() => toggleArrayItem('massageTypes', option)}
-                                            className="sr-only"
-                                        />
-                                        <span>{option}</span>
-                                    </label>
-                                ))}
-                            </div>
-                        </section>
-
-                        {/* Final feliz */}
-                        <section className="bg-card border border-border rounded-lg p-6">
-                            <div className="flex items-center gap-2 mb-4">
-                                <Heart className="w-5 h-5 text-destructive" />
-                                <h2 className="text-xl font-bold">Final feliz</h2>
-                            </div>
-                            <div className="flex flex-wrap gap-2">
-                                {HAPPY_ENDING.map((option) => (
-                                    <label
-                                        key={option}
-                                        className={cn(
-                                            "flex-1 md:flex-none px-4 py-2 border rounded-sm cursor-pointer transition-all flex items-center justify-center text-sm",
-                                            profile.happyEnding?.includes(option)
-                                                ? "border-destructive/50 bg-destructive/5 text-destructive font-medium shadow-sm"
-                                                : "border-border hover:border-destructive/30 bg-background"
-                                        )}
-                                    >
-                                        <input
-                                            type="checkbox"
-                                            checked={profile.happyEnding?.includes(option) || false}
-                                            onChange={() => toggleArrayItem('happyEnding', option)}
-                                            className="sr-only"
-                                        />
-                                        <span>{option}</span>
-                                    </label>
-                                ))}
-                            </div>
-                        </section>
-
-                        {/* Outros serviços */}
-                        <section className="bg-card border border-border rounded-lg p-6">
-                            <div className="flex items-center gap-2 mb-4">
-                                <Sparkles className="w-5 h-5 text-destructive" />
-                                <h2 className="text-xl font-bold">Outros serviços</h2>
-                            </div>
-                            <div className="flex flex-wrap gap-2">
-                                {OTHER_SERVICES.map((option) => (
-                                    <label
-                                        key={option}
-                                        className={cn(
-                                            "flex-1 md:flex-none px-4 py-2 border rounded-sm cursor-pointer transition-all flex items-center justify-center text-sm",
-                                            profile.otherServices?.includes(option)
-                                                ? "border-destructive/50 bg-destructive/5 text-destructive font-medium shadow-sm"
-                                                : "border-border hover:border-destructive/30 bg-background"
-                                        )}
-                                    >
-                                        <input
-                                            type="checkbox"
-                                            checked={profile.otherServices?.includes(option) || false}
-                                            onChange={() => toggleArrayItem('otherServices', option)}
-                                            className="sr-only"
-                                        />
-                                        <span>{option}</span>
-                                    </label>
-                                ))}
-                            </div>
-                        </section>
-                    </>
-                )}
-
-                {/* Seção: Serviços - Apenas para Atendimento Online */}
-                {profile.category === 'Atendimento Online' && (
-                    <>
-                        {/* Serviços */}
-                        <section className="bg-card border border-border rounded-lg p-6">
-                            <div className="flex items-center gap-2 mb-4">
-                                <Monitor className="w-5 h-5 text-destructive" />
-                                <h2 className="text-xl font-bold">Serviços</h2>
-                            </div>
-                            <div className="flex flex-wrap gap-2">
-                                {ONLINE_SERVICES.map((option) => (
-                                    <label
-                                        key={option}
-                                        className={cn(
-                                            "flex-1 md:flex-none px-4 py-2 border rounded-sm cursor-pointer transition-all flex items-center justify-center text-sm",
-                                            profile.onlineServices?.includes(option)
-                                                ? "border-destructive/50 bg-destructive/5 text-destructive font-medium shadow-sm"
-                                                : "border-border hover:border-destructive/30 bg-background"
-                                        )}
-                                    >
-                                        <input
-                                            type="checkbox"
-                                            checked={profile.onlineServices?.includes(option) || false}
-                                            onChange={() => toggleArrayItem('onlineServices', option)}
-                                            className="sr-only"
-                                        />
-                                        <span>{option}</span>
-                                    </label>
-                                ))}
-                            </div>
-                        </section>
-
-                        {/* Atendimento a */}
+                {
+                    profile.category !== 'Atendimento Online' && (
                         <section className="bg-card border border-border rounded-lg p-6">
                             <div className="flex items-center gap-2 mb-4">
                                 <Users className="w-5 h-5 text-destructive" />
                                 <h2 className="text-xl font-bold">Atendimento a</h2>
                             </div>
                             <div className="flex flex-wrap gap-2">
-                                {ONLINE_SERVICE_TO.map((option) => (
+                                {SERVICE_TO.map((option) => (
                                     <label
                                         key={option}
                                         className={cn(
-                                            "flex-1 md:flex-none px-4 py-2 border rounded-sm cursor-pointer transition-all flex items-center justify-center text-sm",
-                                            profile.onlineServiceTo?.includes(option)
+                                            "flex-1 md:flex-none px-4 py-2 border rounded-sm cursor-pointer transition-all flex items-center justify-center gap-2 text-sm",
+                                            profile.serviceTo?.includes(option)
                                                 ? "border-destructive/50 bg-destructive/5 text-destructive font-medium shadow-sm"
                                                 : "border-border hover:border-destructive/30 bg-background"
                                         )}
                                     >
                                         <input
                                             type="checkbox"
-                                            checked={profile.onlineServiceTo?.includes(option) || false}
-                                            onChange={() => toggleArrayItem('onlineServiceTo', option)}
+                                            checked={profile.serviceTo?.includes(option) || false}
+                                            onChange={() => toggleArrayItem('serviceTo', option)}
                                             className="sr-only"
                                         />
                                         <span>{option}</span>
@@ -1118,66 +1125,338 @@ export default function EditProfile() {
                                 ))}
                             </div>
                         </section>
+                    )
+                }
 
-                        {/* Fantasias virtuais */}
-                        <section className="bg-card border border-border rounded-lg p-6">
-                            <div className="flex items-center gap-2 mb-4">
-                                <Gamepad2 className="w-5 h-5 text-destructive" />
-                                <h2 className="text-xl font-bold">Fantasias virtuais</h2>
-                            </div>
-                            <div className="flex flex-wrap gap-2">
-                                {VIRTUAL_FANTASIES.map((option) => (
-                                    <label
-                                        key={option}
-                                        className={cn(
-                                            "flex-1 md:flex-none px-4 py-2 border rounded-sm cursor-pointer transition-all flex items-center justify-center text-sm",
-                                            profile.virtualFantasies?.includes(option)
-                                                ? "border-destructive/50 bg-destructive/5 text-destructive font-medium shadow-sm"
-                                                : "border-border hover:border-destructive/30 bg-background"
-                                        )}
-                                    >
-                                        <input
-                                            type="checkbox"
-                                            checked={profile.virtualFantasies?.includes(option) || false}
-                                            onChange={() => toggleArrayItem('virtualFantasies', option)}
-                                            className="sr-only"
-                                        />
-                                        <span>{option}</span>
-                                    </label>
-                                ))}
-                            </div>
-                        </section>
+                {/* Seção: Serviços - Apenas para Acompanhantes */}
+                {
+                    profile.category === 'Acompanhante' && (
+                        <>
+                            {/* Serviços */}
+                            <section className="bg-card border border-border rounded-lg p-6">
+                                <div className="flex items-center gap-2 mb-4">
+                                    <Heart className="w-5 h-5 text-destructive" />
+                                    <h2 className="text-xl font-bold">Serviços</h2>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                    {ESCORT_SERVICES.map((option) => (
+                                        <label
+                                            key={option}
+                                            className={cn(
+                                                "flex-1 md:flex-none px-4 py-2 border rounded-sm cursor-pointer transition-all flex items-center justify-center text-sm",
+                                                profile.escortServices?.includes(option)
+                                                    ? "border-destructive/50 bg-destructive/5 text-destructive font-medium shadow-sm"
+                                                    : "border-border hover:border-destructive/30 bg-background"
+                                            )}
+                                        >
+                                            <input
+                                                type="checkbox"
+                                                checked={profile.escortServices?.includes(option) || false}
+                                                onChange={() => toggleArrayItem('escortServices', option)}
+                                                className="sr-only"
+                                            />
+                                            <span>{option}</span>
+                                        </label>
+                                    ))}
 
-                        {/* Para vender */}
-                        <section className="bg-card border border-border rounded-lg p-6">
-                            <div className="flex items-center gap-2 mb-4">
-                                <ShoppingCart className="w-5 h-5 text-destructive" />
-                                <h2 className="text-xl font-bold">Para vender</h2>
-                            </div>
-                            <div className="flex flex-wrap gap-2">
-                                {FOR_SALE.map((option) => (
+                                    {/* Sexo Oral - Dropdown */}
+                                    <div className="flex-1 md:flex-none">
+                                        <div className="relative">
+                                            <select
+                                                value={profile.oralSex || ''}
+                                                onChange={(e) => setProfile(prev => ({ ...prev, oralSex: e.target.value }))}
+                                                className={cn(
+                                                    "w-full h-full min-w-[140px] px-4 py-2 border rounded-sm appearance-none bg-background cursor-pointer text-sm focus:outline-none focus:border-destructive/50",
+                                                    profile.oralSex
+                                                        ? "border-destructive/50 bg-destructive/5 text-destructive font-bold"
+                                                        : "border-border hover:border-destructive/30"
+                                                )}
+                                            >
+                                                <option value="">Sexo oral</option>
+                                                {ORAL_SEX_OPTIONS.map((opt) => (
+                                                    <option key={opt} value={opt}>{opt}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+                            </section>
+
+                            {/* Serviços Especiais */}
+                            <section className="bg-card border border-border rounded-lg p-6">
+                                <div className="flex items-center gap-2 mb-4">
+                                    <Sparkles className="w-5 h-5 text-destructive" />
+                                    <h2 className="text-xl font-bold">Serviços especiais</h2>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                    {ESCORT_SPECIAL_SERVICES.map((option) => (
+                                        <label
+                                            key={option}
+                                            className={cn(
+                                                "flex-1 md:flex-none px-4 py-2 border rounded-sm cursor-pointer transition-all flex items-center justify-center text-sm",
+                                                profile.escortSpecialServices?.includes(option)
+                                                    ? "border-destructive/50 bg-destructive/5 text-destructive font-medium shadow-sm"
+                                                    : "border-border hover:border-destructive/30 bg-background"
+                                            )}
+                                        >
+                                            <input
+                                                type="checkbox"
+                                                checked={profile.escortSpecialServices?.includes(option) || false}
+                                                onChange={() => toggleArrayItem('escortSpecialServices', option)}
+                                                className="sr-only"
+                                            />
+                                            <span>{option}</span>
+                                        </label>
+                                    ))}
+                                </div>
+                            </section>
+                        </>
+                    )
+                }
+
+                {/* Seção: Serviços - Apenas para Massagistas */}
+                {
+                    profile.category === 'Massagista' && (
+                        <>
+                            {/* Sobre você - Certificado */}
+                            <section className="bg-card border border-border rounded-lg p-6">
+                                <div className="flex items-center gap-2 mb-4">
+                                    <User className="w-5 h-5 text-destructive" />
+                                    <h2 className="text-xl font-bold">Sobre você</h2>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-bold mb-2">Certificado</label>
                                     <label
-                                        key={option}
                                         className={cn(
-                                            "flex-1 md:flex-none px-4 py-2 border rounded-sm cursor-pointer transition-all flex items-center justify-center text-sm",
-                                            profile.forSale?.includes(option)
+                                            "inline-flex px-4 py-2 border rounded-sm cursor-pointer transition-all items-center justify-center text-sm",
+                                            profile.certified_masseuse
                                                 ? "border-destructive/50 bg-destructive/5 text-destructive font-medium shadow-sm"
                                                 : "border-border hover:border-destructive/30 bg-background"
                                         )}
                                     >
                                         <input
                                             type="checkbox"
-                                            checked={profile.forSale?.includes(option) || false}
-                                            onChange={() => toggleArrayItem('forSale', option)}
+                                            checked={profile.certified_masseuse || false}
+                                            onChange={(e) => setProfile(prev => ({ ...prev, certified_masseuse: e.target.checked }))}
                                             className="sr-only"
                                         />
-                                        <span>{option}</span>
+                                        <span>Massagista certificada</span>
                                     </label>
-                                ))}
-                            </div>
-                        </section>
-                    </>
-                )}
+                                </div>
+                            </section>
+
+                            {/* Tipos de massagens */}
+                            <section className="bg-card border border-border rounded-lg p-6">
+                                <div className="flex items-center gap-2 mb-4">
+                                    <Award className="w-5 h-5 text-destructive" />
+                                    <h2 className="text-xl font-bold">Tipos de massagens</h2>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                    {MASSAGE_TYPES.map((option) => (
+                                        <label
+                                            key={option}
+                                            className={cn(
+                                                "flex-1 md:flex-none px-4 py-2 border rounded-sm cursor-pointer transition-all flex items-center justify-center text-sm",
+                                                profile.massageTypes?.includes(option)
+                                                    ? "border-destructive/50 bg-destructive/5 text-destructive font-medium shadow-sm"
+                                                    : "border-border hover:border-destructive/30 bg-background"
+                                            )}
+                                        >
+                                            <input
+                                                type="checkbox"
+                                                checked={profile.massageTypes?.includes(option) || false}
+                                                onChange={() => toggleArrayItem('massageTypes', option)}
+                                                className="sr-only"
+                                            />
+                                            <span>{option}</span>
+                                        </label>
+                                    ))}
+                                </div>
+                            </section>
+
+                            {/* Final feliz */}
+                            <section className="bg-card border border-border rounded-lg p-6">
+                                <div className="flex items-center gap-2 mb-4">
+                                    <Heart className="w-5 h-5 text-destructive" />
+                                    <h2 className="text-xl font-bold">Final feliz</h2>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                    {HAPPY_ENDING.map((option) => (
+                                        <label
+                                            key={option}
+                                            className={cn(
+                                                "flex-1 md:flex-none px-4 py-2 border rounded-sm cursor-pointer transition-all flex items-center justify-center text-sm",
+                                                profile.happyEnding?.includes(option)
+                                                    ? "border-destructive/50 bg-destructive/5 text-destructive font-medium shadow-sm"
+                                                    : "border-border hover:border-destructive/30 bg-background"
+                                            )}
+                                        >
+                                            <input
+                                                type="checkbox"
+                                                checked={profile.happyEnding?.includes(option) || false}
+                                                onChange={() => toggleArrayItem('happyEnding', option)}
+                                                className="sr-only"
+                                            />
+                                            <span>{option}</span>
+                                        </label>
+                                    ))}
+                                </div>
+                            </section>
+
+                            {/* Outros serviços */}
+                            <section className="bg-card border border-border rounded-lg p-6">
+                                <div className="flex items-center gap-2 mb-4">
+                                    <Sparkles className="w-5 h-5 text-destructive" />
+                                    <h2 className="text-xl font-bold">Outros serviços</h2>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                    {OTHER_SERVICES.map((option) => (
+                                        <label
+                                            key={option}
+                                            className={cn(
+                                                "flex-1 md:flex-none px-4 py-2 border rounded-sm cursor-pointer transition-all flex items-center justify-center text-sm",
+                                                profile.otherServices?.includes(option)
+                                                    ? "border-destructive/50 bg-destructive/5 text-destructive font-medium shadow-sm"
+                                                    : "border-border hover:border-destructive/30 bg-background"
+                                            )}
+                                        >
+                                            <input
+                                                type="checkbox"
+                                                checked={profile.otherServices?.includes(option) || false}
+                                                onChange={() => toggleArrayItem('otherServices', option)}
+                                                className="sr-only"
+                                            />
+                                            <span>{option}</span>
+                                        </label>
+                                    ))}
+                                </div>
+                            </section>
+                        </>
+                    )
+                }
+
+                {/* Seção: Serviços - Apenas para Atendimento Online */}
+                {
+                    profile.category === 'Atendimento Online' && (
+                        <>
+                            {/* Serviços */}
+                            <section className="bg-card border border-border rounded-lg p-6">
+                                <div className="flex items-center gap-2 mb-4">
+                                    <Monitor className="w-5 h-5 text-destructive" />
+                                    <h2 className="text-xl font-bold">Serviços</h2>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                    {ONLINE_SERVICES.map((option) => (
+                                        <label
+                                            key={option}
+                                            className={cn(
+                                                "flex-1 md:flex-none px-4 py-2 border rounded-sm cursor-pointer transition-all flex items-center justify-center text-sm",
+                                                profile.onlineServices?.includes(option)
+                                                    ? "border-destructive/50 bg-destructive/5 text-destructive font-medium shadow-sm"
+                                                    : "border-border hover:border-destructive/30 bg-background"
+                                            )}
+                                        >
+                                            <input
+                                                type="checkbox"
+                                                checked={profile.onlineServices?.includes(option) || false}
+                                                onChange={() => toggleArrayItem('onlineServices', option)}
+                                                className="sr-only"
+                                            />
+                                            <span>{option}</span>
+                                        </label>
+                                    ))}
+                                </div>
+                            </section>
+
+                            {/* Atendimento a */}
+                            <section className="bg-card border border-border rounded-lg p-6">
+                                <div className="flex items-center gap-2 mb-4">
+                                    <Users className="w-5 h-5 text-destructive" />
+                                    <h2 className="text-xl font-bold">Atendimento a</h2>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                    {ONLINE_SERVICE_TO.map((option) => (
+                                        <label
+                                            key={option}
+                                            className={cn(
+                                                "flex-1 md:flex-none px-4 py-2 border rounded-sm cursor-pointer transition-all flex items-center justify-center text-sm",
+                                                profile.onlineServiceTo?.includes(option)
+                                                    ? "border-destructive/50 bg-destructive/5 text-destructive font-medium shadow-sm"
+                                                    : "border-border hover:border-destructive/30 bg-background"
+                                            )}
+                                        >
+                                            <input
+                                                type="checkbox"
+                                                checked={profile.onlineServiceTo?.includes(option) || false}
+                                                onChange={() => toggleArrayItem('onlineServiceTo', option)}
+                                                className="sr-only"
+                                            />
+                                            <span>{option}</span>
+                                        </label>
+                                    ))}
+                                </div>
+                            </section>
+
+                            {/* Fantasias virtuais */}
+                            <section className="bg-card border border-border rounded-lg p-6">
+                                <div className="flex items-center gap-2 mb-4">
+                                    <Gamepad2 className="w-5 h-5 text-destructive" />
+                                    <h2 className="text-xl font-bold">Fantasias virtuais</h2>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                    {VIRTUAL_FANTASIES.map((option) => (
+                                        <label
+                                            key={option}
+                                            className={cn(
+                                                "flex-1 md:flex-none px-4 py-2 border rounded-sm cursor-pointer transition-all flex items-center justify-center text-sm",
+                                                profile.virtualFantasies?.includes(option)
+                                                    ? "border-destructive/50 bg-destructive/5 text-destructive font-medium shadow-sm"
+                                                    : "border-border hover:border-destructive/30 bg-background"
+                                            )}
+                                        >
+                                            <input
+                                                type="checkbox"
+                                                checked={profile.virtualFantasies?.includes(option) || false}
+                                                onChange={() => toggleArrayItem('virtualFantasies', option)}
+                                                className="sr-only"
+                                            />
+                                            <span>{option}</span>
+                                        </label>
+                                    ))}
+                                </div>
+                            </section>
+
+                            {/* Para vender */}
+                            <section className="bg-card border border-border rounded-lg p-6">
+                                <div className="flex items-center gap-2 mb-4">
+                                    <ShoppingCart className="w-5 h-5 text-destructive" />
+                                    <h2 className="text-xl font-bold">Para vender</h2>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                    {FOR_SALE.map((option) => (
+                                        <label
+                                            key={option}
+                                            className={cn(
+                                                "flex-1 md:flex-none px-4 py-2 border rounded-sm cursor-pointer transition-all flex items-center justify-center text-sm",
+                                                profile.forSale?.includes(option)
+                                                    ? "border-destructive/50 bg-destructive/5 text-destructive font-medium shadow-sm"
+                                                    : "border-border hover:border-destructive/30 bg-background"
+                                            )}
+                                        >
+                                            <input
+                                                type="checkbox"
+                                                checked={profile.forSale?.includes(option) || false}
+                                                onChange={() => toggleArrayItem('forSale', option)}
+                                                className="sr-only"
+                                            />
+                                            <span>{option}</span>
+                                        </label>
+                                    ))}
+                                </div>
+                            </section>
+                        </>
+                    )
+                }
 
                 {/* Seção: Local de Atendimento */}
                 <section className="bg-card border border-border rounded-lg p-6">
@@ -1215,89 +1494,91 @@ export default function EditProfile() {
                 </section>
 
                 {/* Seção: Mapa - Apenas para Acompanhantes e Massagistas */}
-                {(profile.category === 'Acompanhante' || profile.category === 'Massagista') && (
-                    <section className="bg-card border border-border rounded-lg p-6">
-                        <div className="flex items-center gap-2 mb-4">
-                            <MapPin className="w-5 h-5 text-destructive" />
-                            <h2 className="text-xl font-bold">Mapa</h2>
-                        </div>
-                        <p className="text-sm text-muted-foreground mb-4">
-                            Para facilitar aos clientes na hora de encontrar o seu endereço, você poderá <span className="text-destructive font-bold">mostrar no seu anúncio um mapa</span> com a sua localização.<br />
-                            <strong>Exemplos:</strong> Avenida 7 de setembro 2080 , Cruzamento da Rua Augusta com Avenida Paulista , Rua Evaristo da Veiga 5000
-                        </p>
+                {
+                    (profile.category === 'Acompanhante' || profile.category === 'Massagista') && (
+                        <section className="bg-card border border-border rounded-lg p-6">
+                            <div className="flex items-center gap-2 mb-4">
+                                <MapPin className="w-5 h-5 text-destructive" />
+                                <h2 className="text-xl font-bold">Mapa</h2>
+                            </div>
+                            <p className="text-sm text-muted-foreground mb-4">
+                                Para facilitar aos clientes na hora de encontrar o seu endereço, você poderá <span className="text-destructive font-bold">mostrar no seu anúncio um mapa</span> com a sua localização.<br />
+                                <strong>Exemplos:</strong> Avenida 7 de setembro 2080 , Cruzamento da Rua Augusta com Avenida Paulista , Rua Evaristo da Veiga 5000
+                            </p>
 
-                        <div className="flex gap-2 mb-4">
-                            <input
-                                type="text"
-                                value={profile.map_address || ''}
-                                onChange={(e) => setProfile(prev => ({ ...prev, map_address: e.target.value }))}
-                                className="flex-1 bg-background border border-input rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-primary outline-none"
-                                placeholder="Selecionar uma cidade ou endereço completo"
-                            />
-                            <button
-                                type="button"
-                                onClick={async () => {
-                                    if (!profile.map_address) return;
-                                    try {
-                                        const coords = await geocodeWithNominatim(profile.map_address);
-                                        setProfile(prev => ({
-                                            ...prev,
-                                            map_coordinates: coords,
-                                            map_region_string: coords.approximate_address || ''
-                                        }));
-                                    } catch (error) {
-                                        console.error('Erro ao buscar endereço:', error);
-                                        // Could add a toast notification here
-                                    }
-                                }}
-                                className="bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 rounded-md text-sm font-medium transition-colors"
-                            >
-                                Mostrar mapa
-                            </button>
-                        </div>
-
-                        <div className="flex gap-4 mb-4">
-                            <label className="flex items-center gap-2 cursor-pointer">
+                            <div className="flex gap-2 mb-4">
                                 <input
-                                    type="radio"
-                                    name="map_location_type"
-                                    checked={profile.map_location_type === 'exact'}
-                                    onChange={() => setProfile(prev => ({ ...prev, map_location_type: 'exact' }))}
-                                    className="w-4 h-4 text-primary focus:ring-primary"
+                                    type="text"
+                                    value={profile.map_address || ''}
+                                    onChange={(e) => setProfile(prev => ({ ...prev, map_address: e.target.value }))}
+                                    className="flex-1 bg-background border border-input rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-primary outline-none"
+                                    placeholder="Selecionar uma cidade ou endereço completo"
                                 />
-                                <span className="text-sm font-medium">Local exato</span>
-                            </label>
-                            <label className="flex items-center gap-2 cursor-pointer">
-                                <input
-                                    type="radio"
-                                    name="map_location_type"
-                                    checked={profile.map_location_type === 'approximate'}
-                                    onChange={() => setProfile(prev => ({ ...prev, map_location_type: 'approximate' }))}
-                                    className="w-4 h-4 text-primary focus:ring-primary"
-                                />
-                                <div className="flex flex-col">
-                                    <span className="text-sm font-medium">Local aproximado</span>
-                                    <span className="text-xs text-muted-foreground">O mapa mostrará apenas a região</span>
-                                </div>
-                            </label>
-                        </div>
+                                <button
+                                    type="button"
+                                    onClick={async () => {
+                                        if (!profile.map_address) return;
+                                        try {
+                                            const coords = await geocodeWithNominatim(profile.map_address);
+                                            setProfile(prev => ({
+                                                ...prev,
+                                                map_coordinates: coords,
+                                                map_region_string: coords.approximate_address || ''
+                                            }));
+                                        } catch (error) {
+                                            console.error('Erro ao buscar endereço:', error);
+                                            // Could add a toast notification here
+                                        }
+                                    }}
+                                    className="bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 rounded-md text-sm font-medium transition-colors"
+                                >
+                                    Mostrar mapa
+                                </button>
+                            </div>
 
-                        <div className="w-full h-[300px] bg-muted/30 rounded-lg overflow-hidden flex items-center justify-center border border-border">
-                            {profile.map_coordinates ? (
-                                <LeafletMap
-                                    lat={profile.map_coordinates.lat}
-                                    lng={profile.map_coordinates.lng}
-                                    mode={profile.map_location_type as 'exact' | 'approximate'}
-                                />
-                            ) : (
-                                <div className="text-center p-4">
-                                    <div className="relative w-full h-full max-w-md mx-auto aspect-video mb-2 opacity-50 bg-[url('https://maps.gstatic.com/mapfiles/api-3/images/map_error_1.png')] bg-center bg-cover"></div>
-                                    <p className="text-muted-foreground font-medium">Introduza um endereço e clique em Mostrar mapa.</p>
-                                </div>
-                            )}
-                        </div>
-                    </section>
-                )}
+                            <div className="flex gap-4 mb-4">
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                    <input
+                                        type="radio"
+                                        name="map_location_type"
+                                        checked={profile.map_location_type === 'exact'}
+                                        onChange={() => setProfile(prev => ({ ...prev, map_location_type: 'exact' }))}
+                                        className="w-4 h-4 text-primary focus:ring-primary"
+                                    />
+                                    <span className="text-sm font-medium">Local exato</span>
+                                </label>
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                    <input
+                                        type="radio"
+                                        name="map_location_type"
+                                        checked={profile.map_location_type === 'approximate'}
+                                        onChange={() => setProfile(prev => ({ ...prev, map_location_type: 'approximate' }))}
+                                        className="w-4 h-4 text-primary focus:ring-primary"
+                                    />
+                                    <div className="flex flex-col">
+                                        <span className="text-sm font-medium">Local aproximado</span>
+                                        <span className="text-xs text-muted-foreground">O mapa mostrará apenas a região</span>
+                                    </div>
+                                </label>
+                            </div>
+
+                            <div className="w-full h-[300px] bg-muted/30 rounded-lg overflow-hidden flex items-center justify-center border border-border">
+                                {profile.map_coordinates ? (
+                                    <LeafletMap
+                                        lat={profile.map_coordinates.lat}
+                                        lng={profile.map_coordinates.lng}
+                                        mode={profile.map_location_type as 'exact' | 'approximate'}
+                                    />
+                                ) : (
+                                    <div className="text-center p-4">
+                                        <div className="relative w-full h-full max-w-md mx-auto aspect-video mb-2 opacity-50 bg-[url('https://maps.gstatic.com/mapfiles/api-3/images/map_error_1.png')] bg-center bg-cover"></div>
+                                        <p className="text-muted-foreground font-medium">Introduza um endereço e clique em Mostrar mapa.</p>
+                                    </div>
+                                )}
+                            </div>
+                        </section>
+                    )
+                }
 
                 {/* Seção: R$ Cachês */}
                 <section className="bg-card border border-border rounded-lg p-6">
@@ -1559,10 +1840,10 @@ export default function EditProfile() {
                         </label>
                     </div>
                 </section>
-            </div>
+            </div >
 
             {/* Save Button */}
-            <div className="fixed bottom-0 left-0 right-0 bg-background/95 backdrop-blur-md border-t border-border p-4 z-40">
+            < div className="fixed bottom-0 left-0 right-0 bg-background/95 backdrop-blur-md border-t border-border p-4 z-40" >
                 <div className="container mx-auto flex items-center justify-between gap-4">
                     {saveStatus.type && (
                         <div className={cn(
@@ -1603,11 +1884,11 @@ export default function EditProfile() {
                         </button>
                     </div>
                 </div>
-            </div>
+            </div >
             <MediaRulesModal
                 isOpen={showMediaRules}
                 onClose={() => setShowMediaRules(false)}
             />
-        </div>
+        </div >
     );
 }

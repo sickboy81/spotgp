@@ -1,5 +1,5 @@
 // API functions for verification system
-// Prepared for database integration - currently using localStorage simulation
+// Fully integrated with Directus database
 
 import { directus } from '../directus';
 import { readItems, createItem, updateItem, uploadFiles } from '@directus/sdk';

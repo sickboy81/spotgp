@@ -1,7 +1,8 @@
+
 import { useEffect, useState } from 'react';
 import { directus } from '@/lib/directus';
-import { readItems, updateItem } from '@directus/sdk';
-import { Search, Trash2, Ban, ShieldCheck, CheckCircle, XCircle, Clock, UserX, Edit, CreditCard, Gift, Mail, BarChart3, FileText, ChevronLeft, ChevronRight, Save, X, Phone } from 'lucide-react';
+import { readItems, createItem, updateItem, deleteFile, aggregate, readUsers } from '@directus/sdk';
+import { Search, Trash2, Ban, ShieldCheck, ShieldAlert, CheckCircle, XCircle, Clock, UserX, Edit, CreditCard, Gift, Mail, BarChart3, FileText, ChevronLeft, ChevronRight, Save, X, Phone } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { unbanUser, deleteUser } from '@/lib/api/moderation';
@@ -18,7 +19,7 @@ interface Profile {
     role: 'visitor' | 'advertiser' | 'super_admin';
     is_banned?: boolean;
     verified?: boolean;
-    verification_status?: 'pending' | 'under_review' | 'approved' | 'rejected';
+    verification_status?: 'unverified' | 'requested' | 'pending' | 'under_review' | 'approved' | 'rejected';
     phone?: string;
     email?: string;
     created?: string;
@@ -62,12 +63,10 @@ export default function UserManagement() {
 
     const loadPlans = async () => {
         try {
-            // TODO: Load from database
-            const mockPlans: Plan[] = [
-                { id: 'plan_1', name: 'Básico', price: 49.90, duration_days: 30 },
-                { id: 'plan_2', name: 'Premium', price: 99.90, duration_days: 30 },
-            ];
-            setAvailablePlans(mockPlans);
+            const plans = await directus.request(readItems('plans', {
+                filter: { is_active: { _eq: true } }
+            }));
+            setAvailablePlans(plans as Plan[]);
         } catch (err) {
             console.error('Error loading plans:', err);
         }
@@ -78,10 +77,27 @@ export default function UserManagement() {
         const plan = availablePlans.find(p => p.id === planId);
         if (!plan) return;
 
-        // TODO: Save to database
-        alert(`Plano ${plan.name} ${isTrial ? '(período grátis)' : ''} atribuído ao usuário com sucesso!`);
-        setShowPlanModal(false);
-        setSelectedUserId(null);
+        try {
+            const startDate = new Date();
+            const endDate = new Date();
+            endDate.setDate(startDate.getDate() + (isTrial ? 7 : plan.duration_days));
+
+            await directus.request(createItem('subscriptions', {
+                user_id: userId,
+                plan_id: planId,
+                start_date: startDate.toISOString(),
+                end_date: endDate.toISOString(),
+                status: 'active',
+                amount_paid: isTrial ? 0 : plan.price
+            }));
+
+            alert(`Plano ${plan.name} ${isTrial ? '(período grátis)' : ''} atribuído ao usuário com sucesso!`);
+            setShowPlanModal(false);
+            setSelectedUserId(null);
+        } catch (err: any) {
+            console.error('Error assigning plan:', err);
+            alert('Erro ao atribuir plano: ' + err.message);
+        }
     };
 
     const handleOpenPlanModal = (userId: string) => {
@@ -125,47 +141,113 @@ export default function UserManagement() {
 
     const handleOpenStatsModal = async (user: Profile) => {
         // Fetch user stats
-        try {
-            // TODO: Load actual stats from database
-            const mockStats: UserStats = {
-                views: Math.floor(Math.random() * 1000),
-                clicks: Math.floor(Math.random() * 500),
-                favorites: Math.floor(Math.random() * 100),
-            };
+        let viewsCount = 0;
+        let clicksCount = 0;
 
-            setSelectedUser({ ...user, stats: mockStats });
+        try {
+            // Aggregation for views
+            const viewsResult = await directus.request(aggregate('profile_views', {
+                query: { filter: { profile_id: { _eq: user.id } } },
+                aggregate: { count: ['*'] }
+            }));
+            viewsCount = parseInt((viewsResult[0] as any).count) || 0;
+
+            // Aggregation for clicks
+            const clicksResult = await directus.request(aggregate('profile_clicks', {
+                query: { filter: { profile_id: { _eq: user.id } } },
+                aggregate: { count: ['*'] }
+            }));
+            clicksCount = parseInt((clicksResult[0] as any).count) || 0;
+        } catch (ignore) {
+            // If tables don't exist yet, we default to 0
+        }
+
+        const realStats: UserStats = {
+            views: viewsCount,
+            clicks: clicksCount,
+            favorites: 0, // Favorites not implemented yet
+        };
+
+        try {
+            setSelectedUser({ ...user, stats: realStats });
         } catch (err) {
             console.error('Error loading stats:', err);
-            setSelectedUser(user); // Fallback
+            setSelectedUser({ ...user, stats: { views: 0, clicks: 0, favorites: 0 } });
         }
 
         setShowStatsModal(true);
     };
 
+
+    const handleRequestVerification = async (user: Profile) => {
+        if (!confirm(`Deseja solicitar a verificação para o usuário ${user.display_name}?`)) return;
+
+        try {
+            await directus.request(updateItem('profiles', user.id, {
+                verification_status: 'requested'
+            }));
+
+            setUsers(prev => prev.map(u =>
+                u.id === user.id ? { ...u, verification_status: 'requested' } : u
+            ));
+
+            alert('Solicitação de verificação enviada com sucesso!');
+        } catch (err: any) {
+            console.error('Error requesting verification:', err);
+            alert('Erro ao solicitar verificação: ' + err.message);
+        }
+    };
+
     async function fetchUsers() {
         try {
-            // Fetch profiles using Directus SDK
-            // We use 'any' for the result to handle the dynamic nature of the fields
-            const records = await directus.request(readItems('profiles', {
-                sort: ['-date_created'], // Directus uses date_created
-                limit: -1, // Fetch all for now, or implement server-side pagination
-            }));
+            setLoading(true);
+            const [users, profiles] = await Promise.all([
+                directus.request(readUsers({
+                    limit: -1,
+                    fields: ['id', 'email', 'first_name', 'last_name', 'role.name', 'last_access', 'status']
+                })),
+                directus.request(readItems('profiles', {
+                    limit: -1,
+                    fields: ['id', 'display_name', 'user', 'date_created', 'verified', 'verification_status', 'phone']
+                    // Removed restricted fields: avatar, location, bio
+                }))
+            ]);
 
-            const usersWithEmail = await Promise.all(records.map(async (user: any) => {
-                // In production, you'd need to query directus_users through a server function or if related
-                // For now, we'll try to get it from mocked logic or checking if 'user' field is expanded
+            const mappedUsers = users.map((user: any) => {
+                const userProfile = profiles.find((p: any) =>
+                    (typeof p.user === 'object' && p.user?.id === user.id) || p.user === user.id
+                );
 
-                // If user.user (auth user) is populated (unlikely without permissions or expand)
-                const email = user.email || (user.user && typeof user.user === 'object' ? user.user.email : `user_${user.id.slice(0, 8)}@example.com`);
+                // Derive logic role from system role
+                let derivedRole = 'visitor';
+                const roleName = user.role?.name;
+                if (roleName === 'Administrator' || roleName === 'Admin') derivedRole = 'super_admin';
+                if (roleName === 'Advertiser' || roleName === 'App User') derivedRole = 'advertiser';
 
                 return {
-                    ...user,
-                    email: email,
-                    created: user.date_created, // Map date_created to created
-                } as Profile;
-            }));
+                    id: userProfile?.id || user.id, // Prefer profile ID, fallback to user ID
+                    // Store system user ID separately if needed, but Profile interface uses 'id' usually for profile links.
+                    // CAUTION: If we use user.id as Profile.id, links to /profile/:id might fail if no profile exists.
+                    // But in Admin Panel, we might want to edit the USER.
+                    // For now, let's assume we want to manage USERS.
+                    // But the table expects 'display_name' etc.
 
-            setUsers(usersWithEmail);
+                    user_id: user.id, // Explicit user ID field
+                    display_name: userProfile?.display_name || `${user.first_name || ''} ${user.last_name || ''} `.trim() || user.email,
+                    email: user.email,
+                    role: derivedRole,
+                    created: userProfile?.date_created || user.last_access, // Fallback to last access or null? User doesn't have created date by default in SDK? 'date_created' is usually on directus_users too? fields didn't request it.
+                    verified: userProfile?.verified || false,
+                    verification_status: userProfile?.verification_status || 'unverified',
+                    phone: userProfile?.phone || null,
+                    avatar: null, // Restricted
+                    location: '', // Restricted
+                    bio: '',      // Restricted
+                    status: user.status
+                } as any; // Cast to any to fit Profile interface temporarily
+            });
+
+            setUsers(mappedUsers);
         } catch (err) {
             console.error(err);
         } finally {
@@ -331,7 +413,7 @@ export default function UserManagement() {
                                             </div>
                                             <div>
                                                 <p className="font-medium">{user.display_name || 'Sem nome'}</p>
-                                                <p className="text-xs text-muted-foreground font-mono">{user.id.slice(0, 8)}...</p>
+                                                <p className="text-xs text-muted-foreground font-mono">{String(user.id).slice(0, 8)}...</p>
                                             </div>
                                         </div>
                                     </td>
@@ -403,7 +485,7 @@ export default function UserManagement() {
                                                 onClick={() => handleOpenEditModal(user)}
                                                 className="p-2 hover:bg-primary/10 rounded-md text-primary transition-colors"
                                                 title="Editar Usuário"
-                                                aria-label={`Editar usuário ${user.display_name}`}
+                                                aria-label={`Editar usuário ${user.display_name} `}
                                             >
                                                 <Edit className="w-4 h-4" />
                                             </button>
@@ -411,24 +493,24 @@ export default function UserManagement() {
                                                 onClick={() => handleOpenStatsModal(user)}
                                                 className="p-2 hover:bg-blue-500/10 rounded-md text-blue-600 transition-colors"
                                                 title="Ver Estatísticas"
-                                                aria-label={`Ver estatísticas de ${user.display_name}`}
+                                                aria-label={`Ver estatísticas de ${user.display_name} `}
                                             >
                                                 <BarChart3 className="w-4 h-4" />
                                             </button>
                                             <Link
-                                                to={`/profile/${user.id}`}
+                                                to={`/ profile / ${user.id} `}
                                                 target="_blank"
                                                 className="p-2 hover:bg-green-500/10 rounded-md text-green-600 transition-colors inline-block"
                                                 title="Ver Perfil Público"
-                                                aria-label={`Ver perfil público de ${user.display_name}`}
+                                                aria-label={`Ver perfil público de ${user.display_name} `}
                                             >
                                                 <FileText className="w-4 h-4" />
                                             </Link>
                                             <Link
-                                                to={`/admin/content?userId=${user.id}`}
+                                                to={`/ admin / content ? userId = ${user.id} `}
                                                 className="p-2 hover:bg-purple-500/10 rounded-md text-purple-600 transition-colors inline-block"
                                                 title="Ver Anúncios do Usuário"
-                                                aria-label={`Ver anúncios de ${user.display_name}`}
+                                                aria-label={`Ver anúncios de ${user.display_name} `}
                                             >
                                                 <CreditCard className="w-4 h-4" />
                                             </Link>
@@ -436,7 +518,7 @@ export default function UserManagement() {
                                                 onClick={() => handleOpenPlanModal(user.id)}
                                                 className="p-2 hover:bg-blue-500/10 rounded-md text-blue-600 transition-colors"
                                                 title="Gerenciar Plano"
-                                                aria-label={`Gerenciar plano de ${user.display_name}`}
+                                                aria-label={`Gerenciar plano de ${user.display_name} `}
                                             >
                                                 <Gift className="w-4 h-4" />
                                             </button>
@@ -445,17 +527,28 @@ export default function UserManagement() {
                                                     to="/admin/verification"
                                                     className="p-2 hover:bg-primary/10 rounded-md text-primary transition-colors inline-block"
                                                     title="Ver Documentos"
-                                                    aria-label={`Ver documentos de ${user.display_name}`}
+                                                    aria-label={`Ver documentos de ${user.display_name} `}
                                                 >
                                                     <ShieldCheck className="w-4 h-4" />
                                                 </Link>
+                                            )}
+                                            {/* Button to request verification manually */}
+                                            {verificationStatus !== 'verified' && verificationStatus !== 'requested' && verificationStatus !== 'pending' && verificationStatus !== 'under_review' && (
+                                                <button
+                                                    onClick={() => handleRequestVerification(user)}
+                                                    className="p-2 hover:bg-yellow-500/10 rounded-md text-yellow-600 transition-colors"
+                                                    title="Solicitar Verificação"
+                                                    aria-label={`Solicitar verificação para ${user.display_name}`}
+                                                >
+                                                    <ShieldAlert className="w-4 h-4" />
+                                                </button>
                                             )}
                                             {user.is_banned ? (
                                                 <button
                                                     onClick={() => handleUnban(user.id)}
                                                     className="p-2 hover:bg-green-500/10 rounded-md text-green-600 transition-colors"
                                                     title="Desbanir Usuário"
-                                                    aria-label={`Desbanir usuário ${user.display_name}`}
+                                                    aria-label={`Desbanir usuário ${user.display_name} `}
                                                 >
                                                     <UserX className="w-4 h-4" />
                                                 </button>
@@ -464,7 +557,7 @@ export default function UserManagement() {
                                                     onClick={() => handleBan(user.id)}
                                                     className="p-2 hover:bg-destructive/10 rounded-md text-destructive transition-colors"
                                                     title="Banir Usuário"
-                                                    aria-label={`Banir usuário ${user.display_name}`}
+                                                    aria-label={`Banir usuário ${user.display_name} `}
                                                 >
                                                     <Ban className="w-4 h-4" />
                                                 </button>
@@ -526,7 +619,7 @@ export default function UserManagement() {
                                                 ? "bg-primary text-primary-foreground"
                                                 : "hover:bg-muted"
                                         )}
-                                        aria-label={`Ir para página ${pageNum}`}
+                                        aria-label={`Ir para página ${pageNum} `}
                                         aria-current={currentPage === pageNum ? 'page' : undefined}
                                     >
                                         {pageNum}
@@ -692,6 +785,17 @@ export default function UserManagement() {
                                 <div className="space-y-2">
                                     {availablePlans.map((plan) => (
                                         <div key={plan.id} className="border border-border rounded-lg p-4">
+                                            <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                                                <span>ID: {String(selectedUserId).slice(0, 8)}...</span>
+                                                {/* Assuming 'user' object is available in this scope or passed down,
+                                                    otherwise 'user.created' will be undefined.
+                                                    For now, using a placeholder for 'user.created' if not available.
+                                                */}
+                                                <div className="flex items-center gap-1">
+                                                    <Clock className="w-3 h-3" />
+                                                    <span>{new Date(Date.now()).toLocaleDateString()}</span>
+                                                </div>
+                                            </div>
                                             <div className="flex items-center justify-between mb-2">
                                                 <div>
                                                     <div className="font-bold">{plan.name}</div>

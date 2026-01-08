@@ -29,8 +29,7 @@ export default function VerificationReview() {
     const loadVerifications = async () => {
         setLoading(true);
         try {
-            // In a real implementation, this would fetch from database
-            // For now, we'll use mock data structure
+            // Fetch pending verifications from database
             const data = await getPendingVerifications();
             setVerifications(data);
         } catch (err) {

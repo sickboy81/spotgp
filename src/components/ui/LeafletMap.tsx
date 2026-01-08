@@ -34,7 +34,7 @@ function MapUpdater({ lat, lng, zoom }: { lat: number; lng: number; zoom: number
 }
 
 export function LeafletMap({ lat, lng, mode }: LeafletMapProps) {
-    const zoom = mode === 'approximate' ? 14 : 15;
+    const zoom = mode === 'approximate' ? 15 : 16;
 
     // Approximate radius in meters (e.g. 1000m = 1km)
     const radius = 1000;

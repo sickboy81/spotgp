@@ -1,76 +1,44 @@
-const URL = 'https://base.spotgp.com';
-const ADMIN_EMAIL = 'egeohub101@gmail.com';
-const ADMIN_PASSWORD = '041052.11setemB';
 
-async function checkAllUsers() {
+import { createDirectus, rest, authentication, readUsers, readItems } from '@directus/sdk';
+import 'dotenv/config';
+
+const envUrl = process.env.VITE_DIRECTUS_URL || 'https://base.spotgp.com';
+const URL = envUrl.startsWith('/') ? 'https://base.spotgp.com' : envUrl;
+const EMAIL = process.env.DIRECTUS_ADMIN_EMAIL;
+const PASSWORD = process.env.DIRECTUS_ADMIN_PASSWORD;
+
+const client = createDirectus(URL)
+    .with(authentication())
+    .with(rest());
+
+async function main() {
     try {
-        // Login as admin
-        console.log('🔐 Logging in as admin...');
-        const loginRes = await fetch(`${URL}/auth/login`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email: ADMIN_EMAIL, password: ADMIN_PASSWORD })
-        });
+        await client.login({ email: EMAIL, password: PASSWORD });
 
-        if (!loginRes.ok) {
-            throw new Error(`Login failed: ${loginRes.status}`);
-        }
+        console.log('Fetching system users (directus_users)...');
+        const users = await client.request(readUsers({
+            limit: -1,
+            fields: ['id', 'email', 'first_name', 'last_name', 'role.name']
+        }));
+        console.log(`Total System Users: ${users.length}`);
 
-        const { data } = await loginRes.json();
-        const token = data.access_token;
-        console.log('✅ Logged in successfully\n');
+        console.log('Fetching profiles...');
+        const profiles = await client.request(readItems('profiles', {
+            limit: -1,
+            fields: ['id', 'user']
+        }));
+        console.log(`Total Profiles: ${profiles.length}`);
 
-        const authHeaders = {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-        };
+        // Find users without profile
+        const usersWithProfile = new Set(profiles.map(p => typeof p.user === 'object' ? p.user.id : p.user));
+        const usersWithoutProfile = users.filter(u => !usersWithProfile.has(u.id));
 
-        // Get all users with their roles
-        console.log('📋 Fetching all users and their roles...\n');
-        const usersRes = await fetch(`${URL}/users?fields=id,email,role.id,role.name&limit=-1`, {
-            headers: authHeaders
-        });
+        console.log(`Users without profile: ${usersWithoutProfile.length}`);
+        usersWithoutProfile.forEach(u => console.log(`- ${u.email} (${u.role?.name})`));
 
-        if (!usersRes.ok) {
-            throw new Error(`Failed to fetch users: ${usersRes.status}`);
-        }
-
-        const usersData = await usersRes.json();
-
-        console.log(`Found ${usersData.data.length} users:\n`);
-        usersData.data.forEach((user, index) => {
-            console.log(`${index + 1}. Email: ${user.email}`);
-            console.log(`   ID: ${user.id}`);
-            console.log(`   Role: ${user.role?.name || 'NO ROLE'} (${user.role?.id || 'NULL'})`);
-            console.log('');
-        });
-
-        // Check which users have "App User" role
-        const appUsers = usersData.data.filter(u => u.role?.name === 'App User');
-        console.log(`\n👥 Users with "App User" role: ${appUsers.length}`);
-        appUsers.forEach(u => {
-            console.log(`   - ${u.email} (${u.id})`);
-        });
-
-        // Get the App User role ID
-        console.log('\n📜 Fetching App User role details...');
-        const rolesRes = await fetch(`${URL}/roles?filter[name][_eq]=App User`, {
-            headers: authHeaders
-        });
-        const rolesData = await rolesRes.json();
-
-        if (rolesData.data && rolesData.data.length > 0) {
-            const appUserRole = rolesData.data[0];
-            console.log(`   App User Role ID: ${appUserRole.id}`);
-            console.log(`   Policies: ${JSON.stringify(appUserRole.policies)}`);
-        }
-
-        console.log('\n✅ Check complete.');
-        console.log('\n💡 Next step: Create a test user with App User role OR assign App User role to existing user');
-
-    } catch (error) {
-        console.error('❌ Error:', error.message);
+    } catch (err) {
+        console.error('Error:', err);
     }
 }
 
-checkAllUsers();
+main();
