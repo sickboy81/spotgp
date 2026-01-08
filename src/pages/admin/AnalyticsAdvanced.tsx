@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { TrendingUp, Users, Eye, MousePointerClick, Download, PieChart, Loader2 } from 'lucide-react';
 import { LineChart as RechartsLineChart, Line, BarChart as RechartsBarChart, Bar, PieChart as RechartsPieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { directus } from '@/lib/directus';
-import { readItems, aggregate } from '@directus/sdk';
+import { readItems } from '@directus/sdk';
 
 const COLORS = ['#8884d8', '#82ca9d', '#ffc658', '#ff7300', '#00ff00'];
 

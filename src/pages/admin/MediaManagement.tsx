@@ -58,7 +58,7 @@ export default function MediaManagement() {
                     owner_id: file.uploaded_by?.id,
                     owner_name: file.uploaded_by ? (file.uploaded_by.first_name || 'Usuário') : 'Sistema',
                     created_at: file.uploaded_on,
-                    origin: 'directus'
+                    origin: 'directus' as const
                 };
             }).filter((m: MediaItem) => m.type === 'image' || m.type === 'video');
 

@@ -1,6 +1,5 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useInfiniteQuery } from '@tanstack/react-query';
-import { supabase } from '@/lib/supabase';
 import { Play, MapPin, Filter, Search, Heart, Check } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { cn } from '@/lib/utils';
@@ -25,12 +24,19 @@ export default function Home() {
     const [activeFilters, setActiveFilters] = useState<FilterState>({
         city: '',
         state: '',
+        neighborhood: '',
+        priceMin: '',
         priceMax: '',
         ageRange: [18, 60],
         hairColor: [],
         bodyType: [],
-        ethnicity: [], // Added
+        ethnicity: [],
         services: [],
+        serviceLocations: [],
+        serviceTo: [],
+        gender: [],
+        category: '',
+        keyword: '',
         paymentMethods: [],
         hasPlace: null,
         videoCall: null,
@@ -139,38 +145,19 @@ export default function Home() {
     } = useInfiniteQuery({
         queryKey: ['profiles', 'advertiser'],
         queryFn: async ({ pageParam = 0 }) => {
-            // Try Supabase first
-            try {
-                const { data, error } = await supabase
-                    .from('profiles')
-                    .select(`*, media(type, url)`)
-                    .eq('role', 'advertiser')
-                    .range(pageParam * 12, (pageParam + 1) * 12 - 1);
+            // MOCK DATA FALLBACK (Supabase removed/migrating)
+            // Functionality reduced temporarily for build fix
 
-                if (error) throw error;
+            // Simulate network delay
+            await new Promise(r => setTimeout(r, 800));
 
-                if (data && data.length > 0) return data;
+            if (pageParam > 5) return []; // Limit mock pages to 5
 
-                // If Supabase returns empty on first page, throw to trigger fallback (or return empty)
-                if (pageParam === 0 && (!data || data.length === 0)) {
-                    throw new Error("No data in DB, using mocks");
-                }
-
-                return [];
-            } catch (err) {
-                console.log("Fetching error or empty DB, using MOCK_PROFILES", err);
-
-                // FALLBACK: Simulate paginated mock data
-                await new Promise(r => setTimeout(r, 800));
-
-                if (pageParam > 5) return []; // Limit mock pages to 5
-
-                // Return mocks with slightly randomized IDs for React keys
-                return MOCK_PROFILES.map(p => ({
-                    ...p,
-                    reactKey: `${p.id}-${pageParam}-${Math.random().toString(36).substr(2, 9)}`
-                }));
-            }
+            // Return mocks with slightly randomized IDs for React keys
+            return MOCK_PROFILES.map(p => ({
+                ...p,
+                reactKey: `${p.id}-${pageParam}-${Math.random().toString(36).substr(2, 9)}`
+            }));
         },
         initialPageParam: 0,
         getNextPageParam: (lastPage, allPages) => {
@@ -537,7 +524,7 @@ export default function Home() {
                                         <button
                                             onClick={(e) => {
                                                 e.preventDefault();
-                                                toggleFavorite(profile.id);
+                                                toggleFavorite(e, profile.id);
                                             }}
                                             className="absolute top-2 right-2 z-30 p-2 rounded-full bg-black/20 backdrop-blur-md text-white/80 hover:bg-white/20 hover:text-white transition-all transform hover:scale-110 active:scale-90"
                                             title={isFavorite ? "Remover dos favoritos" : "Adicionar aos favoritos"}

@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useState, useMemo } from 'react';
 import { VideoUploader } from '@/components/features/media/VideoUploader';
 import { BRAZILIAN_CITIES } from '@/lib/constants/brazilian-cities';
 import { MapPin, ChevronDown } from 'lucide-react';
@@ -13,7 +13,8 @@ export default function EditProfile() {
         neighborhood: '',
         telegram: '',
         instagram: '',
-        twitter: ''
+        twitter: '',
+        username: ''
     });
 
     // City Autocomplete State
