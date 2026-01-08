@@ -1,7 +1,7 @@
 
 import { useEffect, useState } from 'react';
 import { directus } from '@/lib/directus';
-import { readItems, createItem, updateItem, deleteFile, aggregate, readUsers } from '@directus/sdk';
+import { readItems, createItem, updateItem, aggregate, readUsers } from '@directus/sdk';
 import { Search, Trash2, Ban, ShieldCheck, ShieldAlert, CheckCircle, XCircle, Clock, UserX, Edit, CreditCard, Gift, Mail, BarChart3, FileText, ChevronLeft, ChevronRight, Save, X, Phone } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { cn } from '@/lib/utils';
@@ -533,7 +533,7 @@ export default function UserManagement() {
                                                 </Link>
                                             )}
                                             {/* Button to request verification manually */}
-                                            {verificationStatus !== 'verified' && verificationStatus !== 'requested' && verificationStatus !== 'pending' && verificationStatus !== 'under_review' && (
+                                            {(verificationStatus as string) !== 'verified' && (verificationStatus as string) !== 'requested' && (verificationStatus as string) !== 'pending' && (verificationStatus as string) !== 'under_review' && (
                                                 <button
                                                     onClick={() => handleRequestVerification(user)}
                                                     className="p-2 hover:bg-yellow-500/10 rounded-md text-yellow-600 transition-colors"

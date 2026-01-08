@@ -258,3 +258,4 @@ curl -I https://yourdomain.com
 **Solução:** Adicionar origem ao `img-src` no CSP
 
 
+

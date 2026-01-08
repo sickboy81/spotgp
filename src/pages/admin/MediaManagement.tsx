@@ -53,7 +53,7 @@ export default function MediaManagement() {
                 return {
                     id: file.id,
                     url: `${import.meta.env.VITE_DIRECTUS_URL || 'https://base.spotgp.com'}/assets/${file.id}`,
-                    type: isImage ? 'image' : (isVideo ? 'video' : 'image'),
+                    type: (isImage ? 'image' : (isVideo ? 'video' : 'image')) as 'image' | 'video',
                     size: parseInt(file.filesize) || 0,
                     owner_id: file.uploaded_by?.id,
                     owner_name: file.uploaded_by ? (file.uploaded_by.first_name || 'Usuário') : 'Sistema',
@@ -342,6 +342,7 @@ export default function MediaManagement() {
         </div>
     );
 }
+
 
 
 

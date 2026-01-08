@@ -99,3 +99,19 @@ export async function compressVideo(
         };
     }
 }
+
+// Alias for compatibility
+export const compressProfileVideo = compressVideo;
+
+export function getVideoCompressionSummary(result: VideoCompressionResult): string {
+    const savings = result.originalSize > 0
+        ? Math.round(((result.originalSize - result.compressedSize) / result.originalSize) * 100)
+        : 0;
+
+    if (savings <= 0) return 'Vídeo processado.';
+
+    const originalMB = (result.originalSize / (1024 * 1024)).toFixed(1);
+    const compressedMB = (result.compressedSize / (1024 * 1024)).toFixed(1);
+
+    return `Vídeo comprimido: ${originalMB}MB → ${compressedMB}MB (-${savings}%)`;
+}

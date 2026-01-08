@@ -5,6 +5,11 @@ const R2_ACCOUNT_ID = import.meta.env.VITE_R2_ACCOUNT_ID;
 const R2_BUCKET_NAME = import.meta.env.VITE_R2_BUCKET_NAME;
 const R2_PUBLIC_URL = import.meta.env.VITE_R2_PUBLIC_URL;
 
+interface SignerResponse {
+    signedUrl: string;
+    key?: string;
+}
+
 export async function uploadToR2(file: File, folder: string = 'uploads'): Promise<string> {
     if (!R2_BUCKET_NAME) throw new Error("R2 Bucket Name not configured");
 
@@ -15,7 +20,7 @@ export async function uploadToR2(file: File, folder: string = 'uploads'): Promis
 
         // Use Directus SDK to request signed URL from our custom extension
         // NOTE: This requires the 'directus-extension-saphira-signer' to be installed on server
-        const response = await directus.request(() => ({
+        const response = await directus.request<SignerResponse>(() => ({
             path: '/saphira-signer/sign',
             method: 'POST',
             body: JSON.stringify({
@@ -27,12 +32,15 @@ export async function uploadToR2(file: File, folder: string = 'uploads'): Promis
         // For endpoints in Directus, response is usually the data object directly if using SDK correct wrapper,
         // but raw request returns: { signedUrl, key }
 
-        if (!response || !response.signedUrl) {
+        // Cast to unknown first if needed, but TypeScript should accept generic above
+        const data = response as unknown as SignerResponse;
+
+        if (!data || !data.signedUrl) {
             console.error('Resposta do signer:', response);
             throw new Error('Falha ao obter URL assinada do servidor.');
         }
 
-        const { signedUrl } = response;
+        const { signedUrl } = data;
 
         // Upload to R2 using the signed URL
         await fetch(signedUrl, {

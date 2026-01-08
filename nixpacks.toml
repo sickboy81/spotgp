@@ -1,19 +1,1 @@
-# Nixpacks Configuration for VDS Alexhost
-# Resources: 4GB RAM, 40GB SSD, 2 cores
-
-[phases.setup]
-nixPkgs = ["nodejs_20"]
-
-[phases.install]
-# Otimizações para recursos limitados
-cmds = ["npm ci --prefer-offline --no-audit"]
-
-[phases.build]
-# Limitar memória do Node.js a 3GB (deixando 1GB para sistema)
-cmds = ["NODE_OPTIONS='--max-old-space-size=3072' npm run build"]
-
-[start]
-# Iniciar servidor de preview do Vite
-cmd = "npm run start"
-
 
