@@ -19,6 +19,7 @@ import { MediaRulesModal } from '@/components/features/media/MediaRulesModal';
 import { PriceTable } from '@/components/features/media/PriceTable';
 import { AudioUploader } from '@/components/features/media/AudioUploader';
 import { compressProfilePhoto } from '@/lib/imageCompression';
+import { compressVideo } from '@/lib/videoCompression';
 import { uploadToR2 } from '@/lib/services/r2-storage';
 
 export default function EditProfile() {
@@ -358,7 +359,15 @@ export default function EditProfile() {
             try {
                 const videoPromises = videos.map(async (v) => {
                     if (v.file) {
-                        return await uploadToR2(v.file, 'videos');
+                        try {
+                            // Compress video before upload
+                            // We can add a progress indicator in the future if needed
+                            const { file: compressedVideo } = await compressVideo(v.file);
+                            return await uploadToR2(compressedVideo, 'videos');
+                        } catch (err) {
+                            console.error("Video compression failed, uploading original", err);
+                            return await uploadToR2(v.file, 'videos');
+                        }
                     }
                     return v.url;
                 });

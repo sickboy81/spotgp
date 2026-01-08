@@ -1,230 +1,101 @@
-/**
- * Video Compression Utility using FFmpeg.wasm
- * Compresses videos before upload to reduce storage and bandwidth
- */
+
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { fetchFile, toBlobURL } from '@ffmpeg/util';
 
-let ffmpegInstance: FFmpeg | null = null;
-let isLoading = false;
+let ffmpeg: FFmpeg | null = null;
 
-export interface VideoCompressionOptions {
-    maxSizeMB?: number;
-    maxDuration?: number; // in seconds
-    quality?: 'low' | 'medium' | 'high';
-    onProgress?: (progress: number) => void;
+/**
+ * Initialize FFmpeg instance
+ */
+async function loadFFmpeg() {
+    if (ffmpeg) return ffmpeg;
+
+    const instance = new FFmpeg();
+
+    // Load FFmpeg WASM from CDN (standard approach for web apps)
+    // We use a specific version to ensure compatibility
+    const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
+
+    await instance.load({
+        coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
+        wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
+    });
+
+    ffmpeg = instance;
+    return ffmpeg;
 }
 
 export interface VideoCompressionResult {
     file: File;
     originalSize: number;
     compressedSize: number;
-    compressionRatio: number;
-    duration?: number;
 }
 
 /**
- * Load FFmpeg instance (lazy loading)
- */
-async function loadFFmpeg(onProgress?: (progress: number) => void): Promise<FFmpeg> {
-    if (ffmpegInstance) {
-        return ffmpegInstance;
-    }
-
-    if (isLoading) {
-        // Wait for loading to complete
-        while (isLoading) {
-            await new Promise(resolve => setTimeout(resolve, 100));
-        }
-        return ffmpegInstance!;
-    }
-
-    isLoading = true;
-
-    try {
-        const ffmpeg = new FFmpeg();
-
-        ffmpeg.on('log', ({ message }) => {
-            console.log('FFmpeg:', message);
-        });
-
-        ffmpeg.on('progress', ({ progress }) => {
-            if (onProgress) {
-                onProgress(progress * 100);
-            }
-        });
-
-        const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
-
-        await ffmpeg.load({
-            coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
-            wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
-        });
-
-        ffmpegInstance = ffmpeg;
-        isLoading = false;
-        return ffmpeg;
-    } catch (error) {
-        isLoading = false;
-        throw error;
-    }
-}
-
-/**
- * Get video quality settings
- */
-function getQualitySettings(quality: 'low' | 'medium' | 'high') {
-    switch (quality) {
-        case 'low':
-            return {
-                crf: '28', // Higher CRF = lower quality, smaller size
-                preset: 'veryfast',
-                maxBitrate: '500k'
-            };
-        case 'medium':
-            return {
-                crf: '23',
-                preset: 'medium',
-                maxBitrate: '1000k'
-            };
-        case 'high':
-            return {
-                crf: '18',
-                preset: 'slow',
-                maxBitrate: '2000k'
-            };
-    }
-}
-
-/**
- * Compress a video file
+ * Compress video file
+ * Target: 720p height, crf 28 (good compression), preset veryfast
  */
 export async function compressVideo(
     file: File,
-    options: VideoCompressionOptions = {}
+    onProgress?: (progress: number) => void
 ): Promise<VideoCompressionResult> {
-    const {
-        quality = 'medium',
-        maxDuration,
-        onProgress
-    } = options;
-
     const originalSize = file.size;
 
     try {
-        // Load FFmpeg
-        onProgress?.(5);
-        const ffmpeg = await loadFFmpeg((progress) => {
-            // Map loading progress to 5-15%
-            onProgress?.(5 + progress * 0.1);
-        });
+        const ffmpeg = await loadFFmpeg();
 
-        // Write input file
-        onProgress?.(15);
-        await ffmpeg.writeFile('input.mp4', await fetchFile(file));
+        const inputName = 'input.mp4';
+        const outputName = 'output.mp4';
 
-        // Get quality settings
-        const settings = getQualitySettings(quality);
+        // Write file to FFmpeg FS
+        await ffmpeg.writeFile(inputName, await fetchFile(file));
 
-        // Build FFmpeg command
-        const args = [
-            '-i', 'input.mp4',
-            '-c:v', 'libx264', // H.264 codec
-            '-crf', settings.crf,
-            '-preset', settings.preset,
-            '-maxrate', settings.maxBitrate,
-            '-bufsize', '2M',
-            '-c:a', 'aac', // AAC audio codec
-            '-b:a', '128k', // Audio bitrate
-            '-movflags', '+faststart', // Enable streaming
-        ];
-
-        // Add duration limit if specified
-        if (maxDuration) {
-            args.push('-t', maxDuration.toString());
+        // Progress handler
+        if (onProgress) {
+            ffmpeg.on('progress', ({ progress }) => {
+                onProgress(Math.round(progress * 100));
+            });
         }
 
-        // Scale down if needed (max 1280x720 for medium quality)
-        if (quality === 'low') {
-            args.push('-vf', 'scale=640:480:force_original_aspect_ratio=decrease');
-        } else if (quality === 'medium') {
-            args.push('-vf', 'scale=1280:720:force_original_aspect_ratio=decrease');
-        }
+        // Run compression command
+        // -vf scale=-2:720 : Scale to 720p height, width auto divisible by 2
+        // -c:v libx264 : Standard H.264 codec
+        // -crf 28 : Constant Rate Factor (higher = more compression, lower quality. 23-28 is good range)
+        // -preset veryfast : Fast encoding
+        // -an remove audio? No, we want audio.
+        await ffmpeg.exec([
+            '-i', inputName,
+            '-vf', 'scale=-2:720',
+            '-c:v', 'libx264',
+            '-crf', '28',
+            '-preset', 'veryfast',
+            '-c:a', 'aac',
+            '-b:a', '128k',
+            outputName
+        ]);
 
-        args.push('output.mp4');
-
-        // Execute compression
-        onProgress?.(20);
-        await ffmpeg.exec(args);
-
-        // Read output file
-        onProgress?.(95);
-        const data = await ffmpeg.readFile('output.mp4');
-
-        // Create blob and file
-        const blob = new Blob([data as any], { type: 'video/mp4' });
-        const compressedSize = blob.size;
-        const compressionRatio = ((originalSize - compressedSize) / originalSize) * 100;
-
-        const compressedFile = new File(
-            [blob],
-            file.name.replace(/\.[^/.]+$/, '') + '_compressed.mp4',
-            { type: 'video/mp4' }
-        );
+        // Read result
+        const data = await ffmpeg.readFile(outputName);
+        const compressedBlob = new Blob([data as any], { type: 'video/mp4' });
+        const compressedFile = new File([compressedBlob], file.name, { type: 'video/mp4' });
 
         // Cleanup
-        await ffmpeg.deleteFile('input.mp4');
-        await ffmpeg.deleteFile('output.mp4');
-
-        onProgress?.(100);
+        await ffmpeg.deleteFile(inputName);
+        await ffmpeg.deleteFile(outputName);
 
         return {
             file: compressedFile,
             originalSize,
-            compressedSize,
-            compressionRatio: Math.max(0, compressionRatio)
+            compressedSize: compressedFile.size
         };
+
     } catch (error) {
-        console.error('Video compression failed:', error);
-        throw error;
+        console.error("Video compression error:", error);
+        // Fallback: return original file
+        return {
+            file,
+            originalSize,
+            compressedSize: originalSize
+        };
     }
-}
-
-/**
- * Compress a profile video (optimized for short clips)
- */
-export async function compressProfileVideo(
-    file: File,
-    onProgress?: (progress: number) => void
-): Promise<VideoCompressionResult> {
-    return compressVideo(file, {
-        quality: 'medium',
-        maxDuration: 30, // Limit to 30 seconds
-        onProgress
-    });
-}
-
-/**
- * Get compression summary message
- */
-export function getVideoCompressionSummary(result: VideoCompressionResult): string {
-    const originalSize = formatFileSize(result.originalSize);
-    const compressedSize = formatFileSize(result.compressedSize);
-    const ratio = Math.round(result.compressionRatio);
-
-    if (ratio > 0) {
-        return `Vídeo comprimido: ${originalSize} → ${compressedSize} (${ratio}% menor)`;
-    }
-    return `Tamanho: ${compressedSize}`;
-}
-
-/**
- * Format file size for display
- */
-function formatFileSize(bytes: number): string {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
 }
